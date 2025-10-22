@@ -192,14 +192,15 @@ async def post_metrics(
     return {"accepted": accepted}
 
 # ========== LOGS ==========
-@app.websocket("/api/v1/ws/logs/{server_id}")
-async def ws_logs(websocket: WebSocket, server_id: str):
+@app.websocket("/api/v1/ws/logs")
+async def ws_logs(websocket: WebSocket, server_id: str = Query(...), token: Optional[str] = Query(None)):
     await manager.connect(server_id, websocket)
     try:
+        # Keep the connection alive indefinitely
         while True:
-            await websocket.receive_text()  # Keep alive, ignore input
+            await asyncio.sleep(1)
     except WebSocketDisconnect:
-        manager.disconnect(server_id, websocket)
+        await manager.disconnect(server_id, websocket)
 
 @app.get("/api/v1/logs/recent")
 def recent_logs(
