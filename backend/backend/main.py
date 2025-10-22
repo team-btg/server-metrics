@@ -5,13 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc
-from backend.database import SessionLocal
+from backend.database import SessionLocal, engine, Base
 from backend import models, schemas 
 from backend.security import create_access_token, verify_access_token, decode_jwt
 from uuid import UUID
 from typing import List, Optional
 from .websocket_manager import ConnectionManager
 import asyncio
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 

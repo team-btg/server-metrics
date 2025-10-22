@@ -346,7 +346,7 @@ def collect_logs(server_id, limit=50):
                         "timestamp": datetime.datetime.fromtimestamp(ev.TimeGenerated.timestamp()).isoformat(),
                         "level": str(ev.EventType),
                         "source": ev.SourceName,
-                        "event_id": ev.EventID,
+                        "event_id": str(ev.EventID),
                         "message": ev.StringInserts[0] if ev.StringInserts else "",
                         "meta": {}
                     })
