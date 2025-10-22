@@ -1,3 +1,4 @@
 requests
 psutil
 ecdsa
+pywin32
