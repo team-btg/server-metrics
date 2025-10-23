@@ -224,6 +224,7 @@ def recent_logs(
     rows = list(reversed(rows))
     return [
         {
+            "id": r.id,
             "time": r.timestamp.isoformat(),
             "level": r.level,
             "source": r.source,

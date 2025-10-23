@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 export interface LogEntry {
+  id: number;
   timestamp: string;
   level: string;
   source?: string;
@@ -32,7 +33,8 @@ export function useLogs(serverId: string, token?: string) {
         console.log(`[DEBUG] Fetched ${data.length} recent logs for server_id ${serverId}`, data);
   
         const recent: LogEntry[] = data.map((item: any) => ({
-          timestamp: item.timestamp,
+          id: item.id,
+          timestamp: item.time,
           level: item.level,
           source: item.source,
           message: item.message,
