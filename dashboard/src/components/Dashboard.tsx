@@ -26,7 +26,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
   
   const getSystemStatus = () => {
-    if (!latestMetric) return { status: 'loading', text: '● Loading...', color: 'text-gray-400' };
+    if (!latestMetric) return { status: 'loading', text: 'Loading...', color: 'text-gray-700', bgColor: 'bg-gray-700' };
     
     const cpuUsage = latestMetric.cpu;
     const memoryUsage = latestMetric.memory;
@@ -38,25 +38,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
     const isStale = (currentTime - metricTime) > 120000; // 2 minutes
     
     if (isStale) {
-      return { status: 'stale', text: '● System Data Stale', color: 'text-orange-400' };
+      return { status: 'stale', text: 'System Data Stale', color: 'text-orange-400', bgColor: 'bg-orange-700' };
     }
     
     // Critical if any metric is very high
     if (cpuUsage > 95 || memoryUsage > 95 || diskUsage > 95) {
-      return { status: 'critical', text: '● System Critical', color: 'text-red-400' };
+      return { status: 'critical', text: 'System Critical', color: 'text-red-400', bgColor: 'bg-red-700' };
     }
     
     // Warning if any metric is high
     if (cpuUsage > 80 || memoryUsage > 85 || diskUsage > 90) {
-      return { status: 'warning', text: '● System Under Load', color: 'text-yellow-400' };
+      return { status: 'warning', text: 'System Under Load', color: 'text-yellow-400', bgColor: 'bg-yellow-700' };
     }
     
     // Online if metrics are normal
     if (cpuUsage >= 0 && memoryUsage >= 0) {
-      return { status: 'online', text: '● System Online', color: 'text-green-400' };
+      return { status: 'online', text: 'System Online', color: 'text-green-400', bgColor: 'bg-green-700' };
     }
-    
-    return { status: 'unknown', text: '● System Unknown', color: 'text-gray-400' };
+
+    return { status: 'unknown', text: 'System Unknown', color: 'text-gray-400', bgColor: 'bg-gray-700' };
   };
 
   const systemStatus = getSystemStatus();
@@ -68,7 +68,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
           <div className="flex items-center space-x-2">
-            <span className={`text-sm ${systemStatus.color}`}>{systemStatus.text}</span>
+            <span className={`relative flex h-3 w-3`}>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${systemStatus.bgColor} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-3 w-3 ${systemStatus.bgColor}`}></span>
+            </span>
+            <span className={`font-semibold ${systemStatus.color}`}>{systemStatus.text}</span> 
             {latestMetric && (
               <span className="text-xs text-gray-400">
                 CPU: {latestMetric.cpu.toFixed(1)}% | RAM: {latestMetric.memory.toFixed(1)}%
@@ -124,48 +128,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
             </ResponsiveContainer>
           </div>
 
-<div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
-  <h2 className="text-lg font-semibold mb-2">Network I/O (MB/s)</h2>
-  <ResponsiveContainer width="100%" height={250}>
-    <LineChart data={metrics}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-      <XAxis 
-        dataKey="timestamp" 
-        tick={{ fontSize: 10, fill: "#94a3b8" }} 
-        tickFormatter={(value) => {
-          const date = new Date(value);
-          return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
-        }}
-      />
-      <YAxis tick={{ fill: "#94a3b8" }} />
-      <Tooltip 
-        formatter={(value: any, name: string) => {
-          if (name === 'Network In') return [`${value} MB/s`, 'Network In'];
-          if (name === 'Network Out') return [`${value} MB/s`, 'Network Out'];
-          return [value, name];
-        }}
-        labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
-      />
-      <Legend />
-      <Line 
-        type="monotone" 
-        dataKey="networkIn" 
-        stroke="#06b6d4"  // Blue for incoming
-        dot={false} 
-        name="Network In"
-        strokeWidth={2}
-      />
-      <Line 
-        type="monotone" 
-        dataKey="networkOut" 
-        stroke="#eab308"  // Yellow for outgoing
-        dot={false} 
-        name="Network Out"
-        strokeWidth={2}
-      />
-    </LineChart>
-  </ResponsiveContainer>
-</div>
+          <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
+            <h2 className="text-lg font-semibold mb-2">Network I/O (MB/s)</h2>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={metrics}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis 
+                  dataKey="timestamp" 
+                  tick={{ fontSize: 10, fill: "#94a3b8" }} 
+                  tickFormatter={(value) => {
+                    const date = new Date(value);
+                    return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+                  }}
+                />
+                <YAxis tick={{ fill: "#94a3b8" }} />
+                <Tooltip 
+                  formatter={(value: any, name: string) => {
+                    if (name === 'Network In') return [`${value} MB/s`, 'Network In'];
+                    if (name === 'Network Out') return [`${value} MB/s`, 'Network Out'];
+                    return [value, name];
+                  }}
+                  labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="networkIn" 
+                  stroke="#06b6d4"  // Blue for incoming
+                  dot={false} 
+                  name="Network In"
+                  strokeWidth={2}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="networkOut" 
+                  stroke="#eab308"  // Yellow for outgoing
+                  dot={false} 
+                  name="Network Out"
+                  strokeWidth={2}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
         </div>
 
         {/* Server Details */}
