@@ -1,5 +1,5 @@
 import React from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { useMetrics } from "../hooks/useMetrics";
 
 interface StatCardProps {
@@ -88,27 +88,86 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <h2 className="text-lg font-semibold mb-2">CPU Usage</h2>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={metrics}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="timestamp" tick={{ fontSize: 10, fill: "#94a3b8" }} />
-                <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8" }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="cpu" stroke="#3b82f6" dot={false} />
-              </LineChart>
+            <ResponsiveContainer width="100%" height={200}> 
+              <AreaChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> 
+                <defs> 
+                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"> 
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs> 
+                <CartesianGrid strokeDasharray="3 3" stroke="#444444" /> 
+                <XAxis 
+                  dataKey="timestamp" 
+                  stroke="#a1a1aa" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                /> 
+                <YAxis 
+                  stroke="#a1a1aa" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  domain={[0, 100]} 
+                  unit="%" 
+                /> 
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                  labelStyle={{ color: '#fff' }}
+                  labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                /> 
+                <Area 
+                  type="monotone" 
+                  dataKey="cpu" 
+                  stroke="#06b6d4" 
+                  fillOpacity={1} 
+                  fill="url(#colorCpu)" 
+                /> 
+              </AreaChart>
             </ResponsiveContainer>
           </div>
 
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <h2 className="text-lg font-semibold mb-2">RAM Usage</h2>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={metrics}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="timestamp" tick={{ fontSize: 10, fill: "#94a3b8" }} />
-                <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8" }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="memory" stroke="#22c55e" dot={false} />
-              </LineChart>
+            <ResponsiveContainer width="100%" height={200}> 
+              <AreaChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> 
+                <defs>  
+                  <linearGradient id="colorDisk" x1="0" y1="0" x2="0" y2="1">  
+                    <stop offset="5%" stopColor="#70f76cff" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#70f76cff" stopOpacity={0}/>
+                  </linearGradient>
+                </defs> 
+                <CartesianGrid strokeDasharray="3 3" stroke="#444444" /> 
+                <XAxis 
+                  dataKey="timestamp" 
+                  stroke="#a1a1aa" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                /> 
+                <YAxis 
+                  stroke="#a1a1aa" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  domain={[0, 100]} 
+                  unit="%" 
+                /> 
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                  labelStyle={{ color: '#fff' }}
+                  labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                /> 
+                <Area 
+                  type="monotone" 
+                  dataKey="memory" 
+                  stroke="#70f76cff" 
+                  fillOpacity={1} 
+                  fill="url(#colorMemory)"  
+                  dot={false}
+                /> 
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -117,12 +176,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <h2 className="text-lg font-semibold mb-2">Disk Usage (%)</h2>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={200}>
               <LineChart data={metrics}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                 <XAxis dataKey="timestamp" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                 <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8" }} />
-                <Tooltip />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                  labelStyle={{ color: '#fff' }}
+                  labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                />
                 <Line type="monotone" dataKey="diskPercent" stroke="#f97316" dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -130,45 +193,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
 
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <h2 className="text-lg font-semibold mb-2">Network I/O (MB/s)</h2>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={metrics}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis 
-                  dataKey="timestamp" 
-                  tick={{ fontSize: 10, fill: "#94a3b8" }} 
-                  tickFormatter={(value) => {
-                    const date = new Date(value);
-                    return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
-                  }}
-                />
-                <YAxis tick={{ fill: "#94a3b8" }} />
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
+                <XAxis dataKey="timestamp" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip 
-                  formatter={(value: any, name: string) => {
-                    if (name === 'Network In') return [`${value} MB/s`, 'Network In'];
-                    if (name === 'Network Out') return [`${value} MB/s`, 'Network Out'];
-                    return [value, name];
-                  }}
+                  contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                  labelStyle={{ color: '#fff' }}
                   labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
                 />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="networkIn" 
-                  stroke="#06b6d4"  // Blue for incoming
-                  dot={false} 
-                  name="Network In"
-                  strokeWidth={2}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="networkOut" 
-                  stroke="#eab308"  // Yellow for outgoing
-                  dot={false} 
-                  name="Network Out"
-                  strokeWidth={2}
-                />
+                <Legend wrapperStyle={{fontSize: "14px"}}/>
+                <Line type="monotone" dataKey="networkIn" name="Network In" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="networkOut" name="Network Out" stroke="#f43f5e" strokeWidth={2} dot={false}/>
               </LineChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer> 
           </div>
 
         </div>
