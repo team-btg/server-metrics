@@ -258,8 +258,7 @@ def push_batch(batch, token):
                     data = r.json()
                     accepted = data.get("accepted", len(batch)) if isinstance(data, dict) else len(batch)
                 except Exception:
-                    accepted = len(batch)
-                print(f"[OK] Sent {accepted} samples")
+                    accepted = len(batch) 
                 return True, False
             elif r.status_code == 401:
                 print("[ERR] Unauthorized (401). Token may be invalid or expired.")
@@ -287,8 +286,7 @@ def push_logs(batch, token):
                     data = r.json()
                     accepted = data.get("accepted", len(batch)) if isinstance(data, dict) else len(batch)
                 except Exception:
-                    accepted = len(batch)
-                print(f"[OK] Sent {accepted} samples")
+                    accepted = len(batch) 
                 return True, False
             elif r.status_code == 401:
                 print("[ERR] Unauthorized (401). Token may be invalid or expired.")
