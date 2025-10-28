@@ -79,33 +79,38 @@ export interface MetricPoint {
   };
 }
 
-export function useMetrics(serverId: string, token?: string) {
+// Update the function signature to accept period and interval
+export function useMetrics(serverId: string, period: string, interval: number, token?: string) {
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
 
+  // Add 'period' to the dependency array
   useEffect(() => { 
     let active = true;
     
-    // Fetch recent history first
-    const fetchRecent = async () => {
+    // 1. Fetch historical data based on the selected period
+    const fetchHistorical = async () => {
+      if (!active) return;
       try {
-        const url = new URL("http://localhost:8000/api/v1/metrics/recent");
+        // Use the new history endpoint
+        const url = new URL("http://localhost:8000/api/v1/metrics/history");
         url.searchParams.append("server_id", serverId);
+        url.searchParams.append("period", period); // Pass the period
 
         const res = await fetch(url.toString(), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
 
         if (!res.ok) {
-          console.error("Failed to fetch recent metrics:", res.statusText);
+          console.error("Failed to fetch historical metrics:", res.statusText);
+          setMetrics([]); // Clear metrics on failure
           return;
         }
 
         const data = await res.json();
+        console.log(`[DEBUG] Fetched ${data.length} historical metrics for period '${period}'`, data);
 
-        console.log(`[DEBUG] Fetched ${data.length} recent metrics for server_id ${serverId}`, data);
-
-        // Normalize DB data into chart format 
-        const recent: MetricPoint[] = data.map((item: any) => ({
+        // Normalize DB data into chart format (same logic as before)
+        const historical: MetricPoint[] = data.map((item: any) => ({
           timestamp: item.timestamp,
           cpu: item.metrics.find((m: any) => m.name === "cpu.percent")?.value ?? 0,
           memory: item.metrics.find((m: any) => m.name === "mem.percent")?.value ?? 0,
@@ -122,7 +127,6 @@ export function useMetrics(serverId: string, token?: string) {
           loadAvg: item.meta?.formatted?.load_avg,
           diskPercent: item.meta?.formatted?.disk_percent || item.meta?.disk_percent,
           networkIO: item.meta?.formatted?.network_io || item.meta?.network_io,
-          // NEW: Add separate network metrics
           networkIn: item.meta?.network_in || 
                     (typeof item.meta?.formatted?.network_in === 'string' ? 
                      parseFloat(item.meta.formatted.network_in) : 0),
@@ -134,14 +138,16 @@ export function useMetrics(serverId: string, token?: string) {
                         parseFloat(item.meta.formatted.network_total) : 0),
         }));
 
-        if (active) setMetrics(recent);
+        if (active) setMetrics(historical);
       } catch (err) {
-        console.error("Error fetching recent metrics:", err);
+        console.error("Error fetching historical metrics:", err);
+        if (active) setMetrics([]);
       }
     };
 
-    fetchRecent();
+    fetchHistorical();
 
+    // 2. Set up WebSocket for live updates (logic is mostly unchanged)
     const params = new URLSearchParams({ server_id: serverId });
     if (token) params.append("token", token);
 
@@ -203,8 +209,11 @@ export function useMetrics(serverId: string, token?: string) {
     ws.onclose = (err) => console.log("Closed", err);
     ws.onerror = (err) => console.error("Error", err);
 
-    return () => ws.close();
-  }, [serverId, token]);
+    return () => {
+      active = false;
+      ws.close();
+    };
+  }, [serverId, token, period]); // Add 'period' to dependencies
 
   return metrics;
 }

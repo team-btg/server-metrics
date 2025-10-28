@@ -22,6 +22,7 @@ import sys
 AGENT_DIR = Path.home() / ".monitor_agent"
 KEY_FILE = AGENT_DIR / "agent_private.pem"
 META_FILE = AGENT_DIR / "agent_meta.json"
+LOG_STATE_FILE = AGENT_DIR / "log_state.json"
 BACKEND_URL = os.getenv("API_URL", "http://localhost:8000/api/v1")   # configurable
 SAMPLE_INTERVAL = 10   # seconds
 BATCH_INTERVAL = 30    # seconds
@@ -31,6 +32,8 @@ MAX_BATCH_SIZE = int(os.getenv("MAX_BATCH_SIZE", "500"))
 VERIFY_SSL = os.getenv("VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no")
 SESSION = requests.Session()
 
+last_net_io = psutil.net_io_counters()
+last_net_time = time.time()
 
 # ==============================
 # UTILITIES
@@ -117,6 +120,7 @@ def register(sk: SigningKey):
 # METRICS COLLECTION
 # ==============================
 def collect_metrics(server_id):
+    global last_net_io, last_net_time
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     # CPU and memory
@@ -150,11 +154,31 @@ def collect_metrics(server_id):
                 })
 
     # Network I/O statistics - SEPARATE INCOMING AND OUTGOING
-    net_io = psutil.net_io_counters()
-    network_in_mbps = round(net_io.bytes_recv / (1024*1024), 2)  # MB received
-    network_out_mbps = round(net_io.bytes_sent / (1024*1024), 2)  # MB sent
-    network_total_mbps = round((net_io.bytes_recv + net_io.bytes_sent) / (1024*1024), 2)  # Total MB
+    current_net_io = psutil.net_io_counters()
+    current_net_time = time.time()
 
+    # Calculate time and data deltas
+    time_delta = current_net_time - last_net_time
+    bytes_sent_delta = current_net_io.bytes_sent - last_net_io.bytes_sent
+    bytes_recv_delta = current_net_io.bytes_recv - last_net_io.bytes_recv
+
+    # Calculate rate in Megabits per second (Mbps)
+    # Avoid division by zero on the first run or if time hasn't passed
+    if time_delta > 0:
+        # (bytes * 8) / seconds = bits per second
+        # bps / 1,000,000 = Mbps
+        network_in_mbps = round((bytes_recv_delta * 8) / time_delta / 1_000_000, 2)
+        network_out_mbps = round((bytes_sent_delta * 8) / time_delta / 1_000_000, 2)
+    else:
+        network_in_mbps = 0.0
+        network_out_mbps = 0.0
+    
+    network_total_mbps = network_in_mbps + network_out_mbps
+
+    # Update state for the next collection
+    last_net_io = current_net_io
+    last_net_time = current_net_time
+    
     # Get detailed OS info without distro package
     system = platform.system()
     if system == "Linux":
@@ -328,31 +352,67 @@ def collect_logs(server_id, limit=50):
 
     if system == "Windows":
         try:
-            import win32evtlog  # pywin32
+            import win32evtlog
+            import win32evtlogutil
+
+            # Load the last record number we processed
+            last_record_number = 0
+            if LOG_STATE_FILE.exists():
+                with open(LOG_STATE_FILE, "r") as f:
+                    state = json.load(f)
+                    last_record_number = state.get("last_record_number", 0)
+
             server = 'localhost'
             logtype = 'System'
             hand = win32evtlog.OpenEventLog(server, logtype)
-            flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
-            total = 0
-            while total < limit:
-                events = win32evtlog.ReadEventLog(hand, flags, 0)
+            
+            # Read forward from the last known record
+            flags = win32evtlog.EVENTLOG_FORWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
+            
+            newest_record_number = last_record_number
+            
+            events_read = 0
+            while events_read < limit:
+                events = win32evtlog.ReadEventLog(hand, flags, last_record_number)
                 if not events:
                     break
+
                 for ev in events:
+                    # Skip records we've already processed
+                    if ev.RecordNumber <= last_record_number:
+                        continue
+
                     logs.append({
                         "server_id": server_id,
-                        "timestamp": datetime.datetime.fromtimestamp(ev.TimeGenerated.timestamp()).isoformat(),
+                        "timestamp": ev.TimeGenerated.isoformat(),
                         "level": str(ev.EventType),
                         "source": ev.SourceName,
                         "event_id": str(ev.EventID),
-                        "message": ev.StringInserts[0] if ev.StringInserts else "",
-                        "meta": {}
+                        "message": " ".join(s for s in ev.StringInserts if s) if ev.StringInserts else "No message",
+                        "meta": {"record_number": ev.RecordNumber}
                     })
-                    total += 1
-                    if total >= limit:
+                    
+                    newest_record_number = max(newest_record_number, ev.RecordNumber)
+                    events_read += 1
+                    if events_read >= limit:
                         break
+                
+                # If we processed events, update the starting point for the next read call in this loop
+                last_record_number = newest_record_number
+                if events_read >= limit:
+                    break
+
+            win32evtlog.CloseEventLog(hand)
+
+            # Save the newest record number for the next run
+            if newest_record_number > 0:
+                with open(LOG_STATE_FILE, "w") as f:
+                    json.dump({"last_record_number": newest_record_number}, f)
+
+        except ImportError:
+            print("[WARN] 'pywin32' not installed. Cannot fetch Windows Event Logs.")
         except Exception as e:
-            print("[ERR] Could not fetch Windows logs:", e)
+            print(f"[ERR] Could not fetch Windows logs: {e}")
 
     elif system == "Linux":
         try:

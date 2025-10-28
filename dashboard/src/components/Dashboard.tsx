@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { useMetrics } from "../hooks/useMetrics";
+import { useMetrics } from "../hooks/useMetrics"; 
+import PeriodSelector from './PeriodSelector';
+import IntervalSelector from './IntervalSelector';
 
 interface StatCardProps {
   title: string;
@@ -22,7 +24,10 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
-  const metrics = useMetrics(serverId, token); 
+  const [period, setPeriod] = useState('1h');
+  const [interval, setInterval] = useState(5000);
+ 
+  const metrics = useMetrics(serverId, period, interval, token); 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
   
   const getSystemStatus = () => {
@@ -78,8 +83,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
                 CPU: {latestMetric.cpu.toFixed(1)}% | RAM: {latestMetric.memory.toFixed(1)}%
               </span>
             )}
+            
+            <PeriodSelector period={period} setPeriod={setPeriod} />
+            <IntervalSelector interval={interval} setInterval={setInterval} />
+
           </div>
-        </div>
+        </div> 
       </div>
 
       {/* Main content area with full-width layout */}

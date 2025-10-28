@@ -12,6 +12,7 @@ from uuid import UUID
 from typing import List, Optional
 from .websocket_manager import ConnectionManager
 import asyncio
+from datetime import datetime, timedelta
 
 Base.metadata.create_all(bind=engine)
 
@@ -88,6 +89,48 @@ def _require_server_id(creds: HTTPAuthorizationCredentials = Depends(auth_scheme
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token subject")
 
+@app.get("/api/v1/metrics/history")
+def historical_metrics(
+    server_id: str = Query(...),
+    period: str = Query("1h", description="Time period, e.g., 15m, 1h, 6h, 24h"),
+    db: Session = Depends(get_db)
+):
+    try:
+        server_uuid = UUID(server_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid server_id")
+
+    period_map = {
+        "15m": timedelta(minutes=15),
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "24h": timedelta(hours=24),
+    }
+
+    delta = period_map.get(period)
+    if not delta:
+        raise HTTPException(status_code=400, detail="Invalid period specified")
+
+    start_time = datetime.utcnow() - delta
+
+    rows = (
+        db.query(models.Metric)
+        .filter(models.Metric.server_id == server_uuid, models.Metric.timestamp >= start_time)
+        .order_by(models.Metric.timestamp)
+        .all()
+    )
+
+    results = [
+        {
+            "server_id": str(row.server_id),
+            "timestamp": row.timestamp.isoformat(),
+            "metrics": row.metrics,
+            "meta": row.meta or {},
+        }
+        for row in rows
+    ]
+    
+    return results
 
 @app.get("/api/v1/metrics/recent")
 def recent_metrics(
