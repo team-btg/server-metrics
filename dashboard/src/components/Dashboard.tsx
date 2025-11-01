@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from "recharts";
 import { useMetrics } from "../hooks/useMetrics"; 
 import PeriodSelector from './PeriodSelector';
 import IntervalSelector from './IntervalSelector';
+import Card from "./Card";
 
 interface StatCardProps {
   title: string;
@@ -26,6 +27,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
   const [period, setPeriod] = useState('1h');
   const [interval, setInterval] = useState(5000);
+  const [maximizedChart, setMaximizedChart] = useState<string | null>(null);
  
   const metrics = useMetrics(serverId, period, interval, token); 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
@@ -71,19 +73,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
       {/* Header with reduced padding */}
       <div className="p-4 border-b border-gray-700">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
+          <h1 className="text-3xl font-bold">Hub</h1>
           <div className="flex items-center space-x-2">
             <span className={`relative flex h-3 w-3`}>
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${systemStatus.bgColor} opacity-75`}></span>
               <span className={`relative inline-flex rounded-full h-3 w-3 ${systemStatus.bgColor}`}></span>
             </span>
             <span className={`font-semibold ${systemStatus.color}`}>{systemStatus.text}</span> 
-            {latestMetric && (
-              <span className="text-xs text-gray-400">
-                CPU: {latestMetric.cpu.toFixed(1)}% | RAM: {latestMetric.memory.toFixed(1)}%
-              </span>
-            )}
-            
+             
             <PeriodSelector period={period} setPeriod={setPeriod} />
             <IntervalSelector interval={interval} setInterval={setInterval} />
 
@@ -91,12 +88,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
         </div> 
       </div>
 
+      <div className="p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4"> 
+          {/* Card for CPU Usage */}
+          <div className="bg-[#1e293b] rounded-2xl shadow-lg">
+            {latestMetric ? (
+              <Card title="CPU Usage" value={parseFloat(latestMetric.cpu.toFixed(1))} unit="%" />
+            ) : (
+              <Card title="CPU Usage" value={0} />
+            )}
+          </div>
+
+          {/* Card for Memory Usage */}
+          <div className="bg-[#1e293b] rounded-2xl shadow-lg">
+            <Card title="Memory Usage" value={latestMetric ? parseFloat(latestMetric.memory.toFixed(1)) : 0} unit="%" />
+          </div>
+
+          {/* Card for Disk Usage */}
+          <div className="bg-[#1e293b] rounded-2xl shadow-lg">
+            <Card title="Disk Usage" value={latestMetric ? parseFloat((latestMetric.diskPercent || 0).toFixed(1)) : 0} unit="%" />
+          </div>
+           
+        </div>
+      </div>
+
       {/* Main content area with full-width layout */}
       <div className="p-4 space-y-4">
         {/* Top charts: CPU + RAM */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
-            <h2 className="text-lg font-semibold mb-2">CPU Usage</h2>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-semibold">CPU History</h2>
+              <button onClick={() => setMaximizedChart('cpu')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                {/* Smaller maximize icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
+                </svg>
+              </button>
+            </div>
             <ResponsiveContainer width="100%" height={200}> 
               <AreaChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> 
                 <defs> 
@@ -138,7 +167,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
           </div>
 
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
-            <h2 className="text-lg font-semibold mb-2">RAM Usage</h2>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-semibold">RAM History</h2>
+              <button onClick={() => setMaximizedChart('ram')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                {/* Smaller maximize icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
+                </svg>
+              </button>
+            </div>
             <ResponsiveContainer width="100%" height={200}> 
               <AreaChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> 
                 <defs>  
@@ -181,10 +218,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
           </div>
         </div>
 
-        {/* Disk + Network charts */}
+        {/* Bottom charts: Disk + Network */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
-            <h2 className="text-lg font-semibold mb-2">Disk Usage (%)</h2>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-semibold">Disk History</h2>
+              <button onClick={() => setMaximizedChart('disk')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                {/* Smaller maximize icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
+                </svg>
+              </button>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={metrics}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -199,9 +244,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
               </LineChart>
             </ResponsiveContainer>
           </div>
-
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
-            <h2 className="text-lg font-semibold mb-2">Network I/O (MB/s)</h2>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-semibold">Network I/O</h2>
+              <button onClick={() => setMaximizedChart('network')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                {/* Smaller maximize icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
+                </svg>
+              </button>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
@@ -218,7 +270,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
               </LineChart>
             </ResponsiveContainer> 
           </div>
-
         </div>
 
         {/* Server Details */}
@@ -296,6 +347,85 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
           </div>
         </div>
       </div>
+
+      {/* Maximized Chart Modal */}
+      {maximizedChart && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50"
+          onClick={() => setMaximizedChart(null)} // Close modal on background click
+        >
+          <div 
+            className="bg-[#1e293b] rounded-2xl shadow-2xl p-6 w-11/12 h-5/6 flex flex-col"
+            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold capitalize">{maximizedChart} History</h2>
+              <button onClick={() => setMaximizedChart(null)} className="bg-transparent text-gray-400 hover:text-white focus:outline-none" title="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <ResponsiveContainer width="100%" height="100%">
+              {/* Render the correct chart based on the state */}
+              {maximizedChart === 'cpu' && (
+                <AreaChart data={metrics}>
+                  <defs><linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
+                  <XAxis dataKey="timestamp" stroke="#a1a1aa" fontSize={12} tickFormatter={(ts) => new Date(ts).toLocaleTimeString()} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} domain={[0, 100]} unit="%" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                    labelStyle={{ color: '#fff' }}
+                    labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                  />                   
+                <Area type="monotone" dataKey="cpu" stroke="#06b6d4" fill="url(#colorCpu)" />
+                </AreaChart>
+              )}
+              {maximizedChart === 'ram' && (
+                 <AreaChart data={metrics}>
+                  <defs><linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#70f76cff" stopOpacity={0.8}/><stop offset="95%" stopColor="#70f76cff" stopOpacity={0}/></linearGradient></defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
+                  <XAxis dataKey="timestamp" stroke="#a1a1aa" fontSize={12} tickFormatter={(ts) => new Date(ts).toLocaleTimeString()} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} domain={[0, 100]} unit="%" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                    labelStyle={{ color: '#fff' }}
+                    labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                  /> 
+                  <Area type="monotone" dataKey="memory" stroke="#70f76cff" fill="url(#colorMemory)" />
+                </AreaChart>
+              )}
+              {maximizedChart === 'disk' && (
+              <LineChart data={metrics}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="timestamp" tick={{ fontSize: 10, fill: "#94a3b8" }} />
+                <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8" }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                  labelStyle={{ color: '#fff' }}
+                  labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                />
+                <Line type="monotone" dataKey="diskPercent" stroke="#f97316" dot={false} />
+              </LineChart>
+              )}
+              {maximizedChart === 'network' && (
+              <LineChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
+                <XAxis dataKey="timestamp" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #444' }} 
+                  labelStyle={{ color: '#fff' }}
+                  labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
+                />
+                <Legend wrapperStyle={{fontSize: "14px"}}/>
+                <Line type="monotone" dataKey="networkIn" name="Network In" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="networkOut" name="Network Out" stroke="#f43f5e" strokeWidth={2} dot={false}/>
+              </LineChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

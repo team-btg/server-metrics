@@ -7,7 +7,7 @@ import { Menu } from 'lucide-react';
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSidebarMinimized, setIsSidebarMinimized] = useState(true); 
-  const serverId = "ad8e5685-837b-48a6-b888-c116b66cac79"; // replace with actual server_id
+  const serverId = "b11f5078-a6e3-426c-a369-ad9389e6f0b9"; // replace with actual server_id
   const token = ""; // optional JWT token if required
 
   return (

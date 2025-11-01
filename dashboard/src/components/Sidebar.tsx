@@ -35,7 +35,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
         {/* Top section: Logo and mobile close */}
         <div className={`flex items-center ${isMinimized ? 'justify-center' : 'justify-between'} px-4 h-16 border-b border-gray-700`}>
           <span className={`text-white text-2xl font-extrabold ${isMinimized ? 'hidden' : 'block'}`}>Metrics</span>
-          <button onClick={() => setIsOpen(false)} className="md:hidden p-1 rounded-md bg-gray-700">
+          {/* Mobile close button with transparent background */}
+          <button onClick={() => setIsOpen(false)} className="md:hidden p-1 rounded-md text-gray-400 hover:text-white">
             <X size={24} />
           </button>
           {/* Bottom section: Minimize button */}
@@ -64,6 +65,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
           ))}
         </nav>
  
+        {/* Bottom section: Minimize button */}
+        <div className="hidden md:block border-t border-gray-700">
+          {/* Minimize/Expand button with transparent background */}
+          <button 
+            onClick={() => setIsMinimized(!isMinimized)} 
+            className="flex items-center justify-center w-full h-12 text-gray-400 hover:text-white"
+          >
+            {isMinimized ? <ChevronsRight size={20} /> : <ChevronsLeft size={20} />}
+          </button>
+        </div>
       </div>
     </>
   );
