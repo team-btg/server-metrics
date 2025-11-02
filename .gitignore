@@ -1,0 +1,9 @@
+# Environment variables
+.env
+
+# Other project-wide ignores
+node_modules/
+venv/
+.vscode/
+__pycache__/
+*.pyc
