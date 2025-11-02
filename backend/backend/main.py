@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends, status, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.encoders import jsonable_encoder
@@ -9,11 +10,15 @@ from backend.database import SessionLocal, engine, Base
 from backend import models, schemas 
 from backend.security import create_access_token, verify_access_token, decode_jwt
 from uuid import UUID
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from .websocket_manager import ConnectionManager
 import asyncio
 from datetime import datetime, timedelta
+import google.generativeai as genai 
+from pydantic import BaseModel
+from dotenv import load_dotenv
 
+load_dotenv()
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -44,6 +49,53 @@ def get_db():
     finally:
         db.close()
 
+# Configure the Gemini API
+try:
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        print("Warning: GOOGLE_API_KEY is not set. Chat functionality will be disabled.")
+        genai_model = None
+    else:
+        genai.configure(api_key=api_key)
+        genai_model = genai.GenerativeModel('models/gemini-2.5-flash')
+except Exception as e:
+    print(f"Error configuring Gemini API: {e}")
+    genai_model = None
+
+class ChatRequest(BaseModel):
+    question: str
+    metrics: Dict[str, Any]
+
+@app.post("/api/v1/chat/diagnose", tags=["chat"])
+async def diagnose_with_chat(request: ChatRequest):
+    if not genai_model:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI Chat Service is not configured or available.",
+        )
+
+    # Construct the prompt for Gemini
+    prompt = f"""
+    You are an expert server administrator and performance analyst. Your goal is to help a user understand their server's health and diagnose problems based on the data provided.
+
+    Here is a JSON object with the latest performance metrics from the user's server:
+    {request.metrics}
+
+    The user has asked the following question:
+    "{request.question}"
+
+    Analyze the provided metrics to answer the user's question. Provide a clear, concise explanation and suggest actionable steps if a problem is detected. Format your response in Markdown.
+    If the metrics look healthy, say so.
+    """
+
+    try:
+        response = genai_model.generate_content(prompt)
+        return {"response": response.text}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while communicating with the AI service: {e}",
+        )
 
 @app.post("/api/v1/register", status_code=status.HTTP_200_OK)
 def register_server(server: schemas.ServerRegister, db: Session = Depends(get_db)):

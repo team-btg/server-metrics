@@ -4,6 +4,7 @@ import { useMetrics } from "../hooks/useMetrics";
 import PeriodSelector from './PeriodSelector';
 import IntervalSelector from './IntervalSelector';
 import Card from "./Card";
+import ChatPopup from "./ChatPopup";
 
 interface StatCardProps {
   title: string;
@@ -88,27 +89,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
         </div> 
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4"> 
-          {/* Card for CPU Usage */}
-          <div className="bg-[#1e293b] rounded-2xl shadow-lg">
-            {latestMetric ? (
-              <Card title="CPU Usage" value={parseFloat(latestMetric.cpu.toFixed(1))} unit="%" />
-            ) : (
-              <Card title="CPU Usage" value={0} />
-            )}
+      <div className="p-4 space-y-4"> 
+        <div className="flex justify-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4"> 
+            {/* Card for CPU Usage */}
+            <div className="bg-[#1e293b] rounded-2xl size-32 shadow-lg">
+              <Card title="CPU Usage" value={latestMetric ? parseFloat(latestMetric.cpu.toFixed(1)) : 0} unit="%" />
+            </div> 
+            {/* Card for Memory Usage */}
+            <div className="bg-[#1e293b] rounded-2xl size-32 shadow-lg">
+              <Card title="Memory Usage" value={latestMetric ? parseFloat(latestMetric.memory.toFixed(1)) : 0} unit="%" />
+            </div> 
+            {/* Card for Disk Usage */}
+            <div className="bg-[#1e293b] rounded-2xl size-32 shadow-lg">
+              <Card title="Disk Usage" value={latestMetric ? parseFloat(latestMetric.diskPercent.toFixed(1)) : 0} unit="%" />
+            </div> 
           </div>
-
-          {/* Card for Memory Usage */}
-          <div className="bg-[#1e293b] rounded-2xl shadow-lg">
-            <Card title="Memory Usage" value={latestMetric ? parseFloat(latestMetric.memory.toFixed(1)) : 0} unit="%" />
-          </div>
-
-          {/* Card for Disk Usage */}
-          <div className="bg-[#1e293b] rounded-2xl shadow-lg">
-            <Card title="Disk Usage" value={latestMetric ? parseFloat((latestMetric.diskPercent || 0).toFixed(1)) : 0} unit="%" />
-          </div>
-           
         </div>
       </div>
 
@@ -240,7 +236,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
                   labelStyle={{ color: '#fff' }}
                   labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
                 />
-                <Line type="monotone" dataKey="diskPercent" stroke="#f97316" dot={false} />
+                <Legend wrapperStyle={{fontSize: "14px"}}/>
+                <Line type="monotone" dataKey="diskRead" name="Disk Read" stroke="#0044ffff" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="diskWrite" name="Disk Write" stroke="#f59e0b" strokeWidth={2} dot={false}/>              
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -404,7 +402,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
                   labelStyle={{ color: '#fff' }}
                   labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
                 />
-                <Line type="monotone" dataKey="diskPercent" stroke="#f97316" dot={false} />
+                <Legend wrapperStyle={{fontSize: "14px"}}/>
+                <Line type="monotone" dataKey="diskRead" name="Disk Read" stroke="#0b36f575" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="diskWrite" name="Disk Write" stroke="#f4a63fa8" strokeWidth={2} dot={false}/>   
               </LineChart>
               )}
               {maximizedChart === 'network' && (
@@ -426,6 +426,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
           </div>
         </div>
       )}
+
+      {/* Add the Chat Popup Component Here */}
+      <ChatPopup latestMetric={latestMetric} token={token} />
     </div>
   );
 };

@@ -43,7 +43,9 @@ export interface MetricPoint {
   cpuInfo?: string;
   uptime?: string;
   loadAvg?: number | string;
-  diskPercent?: number;
+  diskPercent: number;
+  diskRead?: number;
+  diskWrite?: number;
   networkIO?: string | number;
   // NEW: Separate network metrics
   networkIn?: number;
@@ -125,7 +127,9 @@ export function useMetrics(serverId: string, period: string, interval: number, t
           cpuInfo: item.meta?.formatted?.cpu,
           uptime: item.meta?.formatted?.uptime,
           loadAvg: item.meta?.formatted?.load_avg,
-          diskPercent: item.meta?.formatted?.disk_percent || item.meta?.disk_percent,
+          diskPercent: parseFloat(item.meta?.formatted?.disk_percent) || item.meta?.disk_percent || 0,
+          diskRead: item.meta?.disk_read_mbps || 0,
+          diskWrite: item.meta?.disk_write_mbps || 0,
           networkIO: item.meta?.formatted?.network_io || item.meta?.network_io,
           networkIn: item.meta?.network_in || 
                     (typeof item.meta?.formatted?.network_in === 'string' ? 
@@ -183,7 +187,9 @@ export function useMetrics(serverId: string, period: string, interval: number, t
             cpuInfo: msg.data.meta?.formatted?.cpu,
             uptime: msg.data.meta?.formatted?.uptime,
             loadAvg: msg.data.meta?.formatted?.load_avg,
-            diskPercent: msg.data.meta?.formatted?.disk_percent || msg.data.meta?.disk_percent,
+            diskPercent: parseFloat(msg.data.meta?.formatted?.disk_percent) || msg.data.meta?.disk_percent || 0,
+            diskRead: msg.data.meta?.disk_read_mbps || 0,
+            diskWrite: msg.data.meta?.disk_write_mbps || 0,
             networkIO: msg.data.meta?.formatted?.network_io || msg.data.meta?.network_io,
             // NEW: Add separate network metrics for WebSocket data
             networkIn: msg.data.meta?.network_in || 

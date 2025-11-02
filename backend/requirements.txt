@@ -6,3 +6,4 @@ alembic
 pydantic
 requests
 PyJWT>=2.8,<3
+google-generativeai 

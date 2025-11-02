@@ -34,6 +34,8 @@ SESSION = requests.Session()
 
 last_net_io = psutil.net_io_counters()
 last_net_time = time.time()
+last_disk_io = psutil.disk_io_counters()
+last_disk_time = time.time()
 
 # ==============================
 # UTILITIES
@@ -120,7 +122,7 @@ def register(sk: SigningKey):
 # METRICS COLLECTION
 # ==============================
 def collect_metrics(server_id):
-    global last_net_io, last_net_time
+    global last_net_io, last_net_time, last_disk_io, last_disk_time
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     # CPU and memory
@@ -153,10 +155,27 @@ def collect_metrics(server_id):
                     "broadcast": addr.broadcast
                 })
 
+    # Disk I/O statistics
+    current_disk_io = psutil.disk_io_counters()
+    current_disk_time = time.time()
+    disk_time_delta = current_disk_time - last_disk_time
+    read_bytes_delta = current_disk_io.read_bytes - last_disk_io.read_bytes
+    write_bytes_delta = current_disk_io.write_bytes - last_disk_io.write_bytes
+    
+    if disk_time_delta > 0:
+        disk_read_mbps = round((read_bytes_delta * 8) / disk_time_delta / 1_000_000, 2)
+        disk_write_mbps = round((write_bytes_delta * 8) / disk_time_delta / 1_000_000, 2)
+    else:
+        disk_read_mbps = 0.0
+        disk_write_mbps = 0.0
+
+    last_disk_io = current_disk_io 
+    last_disk_time = current_disk_time    
+    
     # Network I/O statistics - SEPARATE INCOMING AND OUTGOING
     current_net_io = psutil.net_io_counters()
     current_net_time = time.time()
-
+    
     # Calculate time and data deltas
     time_delta = current_net_time - last_net_time
     bytes_sent_delta = current_net_io.bytes_sent - last_net_io.bytes_sent
@@ -244,6 +263,8 @@ def collect_metrics(server_id):
             "uptime_days": uptime_days,
             "load_avg": load_avg,
             "disk_percent": disk_usage[0]["percent"] if disk_usage else 0,
+            "disk_read_mbps": disk_read_mbps,
+            "disk_write_mbps": disk_write_mbps,
             # Separate network metrics
             "network_in": network_in_mbps,    # MB received
             "network_out": network_out_mbps,  # MB sent
@@ -257,7 +278,9 @@ def collect_metrics(server_id):
                 "cpu": f"{server_info['cpu_model']} ({server_info['cores']} cores, {server_info['cpu_speed']} GHz)",
                 "uptime": f"{uptime_days} days",
                 "load_avg": load_avg,
-                "disk_percent": disk_usage[0]["percent"] if disk_usage else 0,
+                "disk_percent": f"{disk_usage[0]['percent'] if disk_usage else 0}%",
+                "disk_read_mbps": f"{disk_read_mbps}",
+                "disk_write_mbps": f"{disk_write_mbps}",
                 "network_total": f"{network_total_mbps}",  # Keep total for backward compatibility
                 "network_in": f"{network_in_mbps}",
                 "network_out": f"{network_out_mbps}"

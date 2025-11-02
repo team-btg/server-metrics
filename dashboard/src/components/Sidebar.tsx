@@ -38,12 +38,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
           {/* Mobile close button with transparent background */}
           <button onClick={() => setIsOpen(false)} className="md:hidden p-1 rounded-md text-gray-400 hover:text-white">
             <X size={24} />
-          </button>
-          {/* Bottom section: Minimize button */}
-          <div className="hidden md:block border-t border-gray-700">
+          </button> 
+          <div className="hidden md:block border-gray-700">
             <button 
               onClick={() => setIsMinimized(!isMinimized)} 
-              className="flex items-center justify-center w-full h-12 text-gray-400 bg-gray-700 hover:text-white"
+              className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" 
             >
               {isMinimized ? <ChevronsRight size={20} /> : <ChevronsLeft size={20} />}
             </button>
@@ -63,18 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
               <span className={`${isMinimized ? 'hidden' : 'block'}`}>{item.name}</span>
             </a>
           ))}
-        </nav>
- 
-        {/* Bottom section: Minimize button */}
-        <div className="hidden md:block border-t border-gray-700">
-          {/* Minimize/Expand button with transparent background */}
-          <button 
-            onClick={() => setIsMinimized(!isMinimized)} 
-            className="flex items-center justify-center w-full h-12 text-gray-400 hover:text-white"
-          >
-            {isMinimized ? <ChevronsRight size={20} /> : <ChevronsLeft size={20} />}
-          </button>
-        </div>
+        </nav> 
       </div>
     </>
   );
