@@ -29,9 +29,7 @@ export function useLogs(serverId: string, token?: string) {
         }
 
         const data = await res.json();
-
-        console.log(`[DEBUG] Fetched ${data.length} recent logs for server_id ${serverId}`, data);
-  
+ 
         const recent: LogEntry[] = data.map((item: any) => ({
           id: item.id,
           timestamp: item.time,

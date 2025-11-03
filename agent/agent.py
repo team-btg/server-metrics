@@ -39,83 +39,49 @@ last_disk_time = time.time()
 
 # ==============================
 # UTILITIES
-# ==============================
-def ensure_agent_dir():
-    AGENT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def load_or_generate_key():
-    if KEY_FILE.exists():
-        with open(KEY_FILE, "rb") as f:
-            sk = SigningKey.from_pem(f.read())
-    else:
-        sk = SigningKey.generate(curve=NIST256p)
-        with open(KEY_FILE, "wb") as f:
-            f.write(sk.to_pem())
-        # Restrict perms on POSIX
-        if os.name == "posix":
-            try:
-                os.chmod(KEY_FILE, 0o600)
-            except Exception:
-                pass
-    return sk
-
-
-def pubkey_pem(sk: SigningKey) -> str:
-    return sk.get_verifying_key().to_pem().decode()
-
-
-def get_hardware_fingerprint():
-    # Very naive for MVP: combine hostname + MAC
-    hostname = socket.gethostname()
-    mac = uuid.getnode()
-    raw = f"{hostname}-{mac}".encode()
-    return "sha256:" + hashlib.sha256(raw).hexdigest()
-
-
-def save_meta(meta: dict):
-    with open(META_FILE, "w") as f:
-        json.dump(meta, f)
-
-
-def load_meta():
-    if META_FILE.exists():
-        with open(META_FILE, "r") as f:
-            return json.load(f)
-    return None
-
-
+# ==============================  
 def exponential_backoff(attempt):
     # Add small jitter to avoid thundering herd
     base = min(60, 2 ** attempt)
     return base + random.uniform(0, 1)
-
-
+ 
 # ==============================
 # REGISTRATION
 # ==============================
-def register(sk: SigningKey):
-    url = f"{BACKEND_URL}/register"
-    payload = {
-        "pubkey": pubkey_pem(sk),
-        "fingerprint": get_hardware_fingerprint(),
-        "hostname": socket.gethostname(),
-        "tags": {"os": platform.system(), "arch": platform.machine()},
-    }
-    for attempt in range(MAX_RETRIES):
-        try:
-            r = SESSION.post(url, json=payload, timeout=10, verify=VERIFY_SSL)
-            if r.status_code in (200, 201):
-                meta = r.json()
-                save_meta(meta)
-                print(f"[OK] Registered as {meta.get('server_id')}")
-                return meta
-            else:
-                print(f"[ERR] Registration failed {r.status_code}: {r.text}")
-        except Exception as e:
-            print(f"[ERR] Registration attempt {attempt}: {e}")
-        time.sleep(exponential_backoff(attempt))
-    raise RuntimeError("Failed to register after retries")
+def load_or_register_agent():
+    AGENT_DIR.mkdir(exist_ok=True)
+    if META_FILE.exists():
+        with open(META_FILE, "r") as f:
+            meta = json.load(f)
+            print(f"[INFO] Agent already registered. Server ID: {meta['server_id']}")
+            return meta['server_id'], meta['api_key']
+
+    print("[INFO] No existing registration found. Registering new agent...")
+    hostname = socket.gethostname()
+    payload = {"hostname": hostname, "tags": []}
+    
+    try:
+        r = requests.post(f"{BACKEND_URL}/agent/register", json=payload, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        
+        server_id = data['id']
+        api_key = data['api_key']
+
+        with open(META_FILE, "w") as f:
+            json.dump({"server_id": server_id, "api_key": api_key}, f)
+        
+        print("\n" + "="*50)
+        print("AGENT REGISTRATION SUCCESSFUL")
+        print("Please add this server to your dashboard using the following details:")
+        print(f"  Server ID: {server_id}")
+        print(f"  API Key:   {api_key}")
+        print("="*50 + "\n")
+        
+        return server_id, api_key
+    except Exception as e:
+        print(f"[FATAL] Could not register agent with backend: {e}")
+        return None, None
 
 
 # ==============================
@@ -292,13 +258,13 @@ def collect_metrics(server_id):
 # ==============================
 # METRICS PUSH
 # ==============================
-def push_batch(batch, token):
+def push_batch(batch, api_key):
     if not batch:
         return True, False
     url = f"{BACKEND_URL}/metrics"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
     for attempt in range(MAX_RETRIES):
-        try:
+        try: 
             r = SESSION.post(url, json=batch, headers=headers, timeout=10, verify=VERIFY_SSL)
             if r.status_code in (200, 202):
                 try:
@@ -320,13 +286,13 @@ def push_batch(batch, token):
 # ==============================
 # LOGS COLLECTION
 # ==============================
-def push_logs(batch, token):
+def push_logs(batch, api_key):
     if not batch:
         return True, False
     url = f"{BACKEND_URL}/logs"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
     for attempt in range(MAX_RETRIES):
-        try:
+        try: 
             r = SESSION.post(url, json=batch, headers=headers, timeout=10, verify=VERIFY_SSL)
             if r.status_code in (200, 202):
                 try:
@@ -359,9 +325,7 @@ def logs_worker(server_id, token, stop_event):
         time_to_push = (time.time() - last_push) >= 10 or len(batch) >= 50
         if time_to_push and batch:
             ok, unauthorized = push_logs(batch, token)
-            if unauthorized:
-                meta = register(load_or_generate_key())
-                token = meta.get("token")
+            if unauthorized: 
                 ok, _ = push_logs(batch, token)
             if ok:
                 batch.clear()
@@ -459,19 +423,11 @@ def collect_logs(server_id, limit=50):
 # ==============================
 # MAIN LOOP
 # ==============================
-def main():
-    ensure_agent_dir()
-    sk = load_or_generate_key()
-    meta = load_meta()
-    if not meta:
-        meta = register(sk)
-    # Ensure we have a token (older meta may not include it); re-register returns existing id with token
-    if "token" not in meta or not meta.get("token"):
-        meta = register(sk)
-
-    server_id = meta["server_id"]
-    token = meta.get("token")
-
+def main(): 
+    server_id, api_key = load_or_register_agent()
+    if not api_key:
+        return
+ 
     batch = []
     last_push = time.time()
 
@@ -488,7 +444,7 @@ def main():
 
     print(f"[INFO] Agent started for {server_id}")
 
-    log_thread = threading.Thread(target=logs_worker, args=(server_id, token, stop_event), daemon=True)
+    log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event), daemon=True)
     log_thread.start()
     
     try:
@@ -499,12 +455,10 @@ def main():
             time_to_push = (time.time() - last_push) >= BATCH_INTERVAL
             size_to_push = len(batch) >= MAX_BATCH_SIZE
             if time_to_push or size_to_push:
-                ok, unauthorized = push_batch(batch, token)
+                ok, unauthorized = push_batch(batch, api_key)
                 if unauthorized:
-                    # Refresh token then retry once
-                    meta = register(sk)
-                    token = meta.get("token")
-                    ok, _ = push_batch(batch, token)
+                    # Refresh token then retry once 
+                    ok, _ = push_batch(batch, api_key)
                 if ok:
                     batch.clear()
                     last_push = time.time()
@@ -515,12 +469,10 @@ def main():
         # Final flush on shutdown
         if batch:
             print("[INFO] Flushing remaining samples...")
-            ok, unauthorized = push_batch(batch, token)
+            ok, unauthorized = push_batch(batch, api_key)
             if not ok and unauthorized:
-                try:
-                    meta = register(sk)
-                    token = meta.get("token")
-                    push_batch(batch, token)
+                try: 
+                    push_batch(batch, api_key)
                 except Exception as e:
                     print(f"[ERR] Final flush failed: {e}")
         try:

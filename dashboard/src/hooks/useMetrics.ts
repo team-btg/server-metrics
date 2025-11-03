@@ -108,9 +108,8 @@ export function useMetrics(serverId: string, period: string, interval: number, t
           return;
         }
 
-        const data = await res.json();
-        console.log(`[DEBUG] Fetched ${data.length} historical metrics for period '${period}'`, data);
-
+        const data = await res.json(); 
+        
         // Normalize DB data into chart format (same logic as before)
         const historical: MetricPoint[] = data.map((item: any) => ({
           timestamp: item.timestamp,
@@ -202,9 +201,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
                          (typeof msg.data.meta?.formatted?.network_total === 'string' ? 
                           parseFloat(msg.data.meta.formatted.network_total) : 0),
           };
-
-          console.log("[WS] New metric point:", newPoint);
-
+  
           setMetrics((prev) => [...prev, newPoint].slice(-200)); // keep last 200 points
         }
       } catch (err) {

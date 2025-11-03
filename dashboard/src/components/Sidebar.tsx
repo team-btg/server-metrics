@@ -6,15 +6,10 @@ interface SidebarProps {
   setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isMinimized: boolean;
   setIsMinimized: React.Dispatch<React.SetStateAction<boolean>>;
+  children: React.ReactNode;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIsMinimized }) => {
-  const navItems = [
-    { icon: <BarChart size={20} />, name: 'Dashboard' },
-    { icon: <Server size={20} />, name: 'Servers' }, 
-    { icon: <Settings size={20} />, name: 'Settings' },
-  ];
-
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIsMinimized, children }) => {
   // Classes for the sidebar's responsive and minimized behavior
   const sidebarClasses = `
     bg-gray-800 text-white flex flex-col
@@ -36,7 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
         <div className={`flex items-center ${isMinimized ? 'justify-center' : 'justify-between'} px-4 h-16 border-b border-gray-700`}>
           <span className={`text-white text-2xl font-extrabold ${isMinimized ? 'hidden' : 'block'}`}>Metrics</span>
           {/* Mobile close button with transparent background */}
-          <button onClick={() => setIsOpen(false)} className="md:hidden p-1 rounded-md text-gray-400 hover:text-white">
+          <button onClick={() => setIsOpen(false)} className="md:hidden p-1 rounded-md bg-transparent text-gray-400 hover:text-white focus:outline-none">
             <X size={24} />
           </button> 
           <div className="hidden md:block border-gray-700">
@@ -50,19 +45,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
         </div>
 
         {/* Navigation */}
-        <nav className="flex-grow px-2 py-4 space-y-2">
-          {navItems.map((item, index) => (
-            <a
-              key={index}
-              href="#"
-              className={`flex items-center space-x-3 py-2.5 px-4 rounded transition duration-200 bg-gray-700 ${index === 0 ? 'bg-gray-900' : ''} ${isMinimized ? 'justify-center' : ''}`}
-              title={isMinimized ? item.name : ''}
-            >
-              {item.icon}
-              <span className={`${isMinimized ? 'hidden' : 'block'}`}>{item.name}</span>
-            </a>
-          ))}
-        </nav> 
+        {children}
       </div>
     </>
   );

@@ -1,25 +1,49 @@
+import secrets
+import hashlib
+import asyncio
 import os
-from fastapi import FastAPI, Depends, status, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import google.generativeai as genai 
+
+from fastapi import APIRouter, OAuth2PasswordBearer, OAuth2PasswordRequestForm, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import desc
+from sqlalchemy import desc 
 from backend.database import SessionLocal, engine, Base
 from backend import models, schemas 
 from backend.security import create_access_token, verify_access_token, decode_jwt
 from uuid import UUID
 from typing import List, Optional, Any, Dict
-from .websocket_manager import ConnectionManager
-import asyncio
-from datetime import datetime, timedelta
-import google.generativeai as genai 
+from .websocket_manager import ConnectionManager 
+from datetime import datetime, timedelta 
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from passlib.context import CryptContext
+from authlib.integrations.starlette_client import OAuth
 
 load_dotenv()
+
 Base.metadata.create_all(bind=engine)
+
+# --- Security & Auth Setup ---
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 app = FastAPI()
 
@@ -48,6 +72,52 @@ def get_db():
         yield db
     finally:
         db.close()
+        
+# --- Dependency to get current user ---
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # ... (logic to decode JWT and fetch user from DB) ...
+    # This will be the core of your session management
+    pass
+
+# --- New Auth Router ---
+auth_router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
+
+@auth_router.post("/register")
+def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # ... (logic to check if user exists, hash password, save to DB) ...
+    pass
+
+@auth_router.post("/login")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # ... (logic to verify user/password, create and return JWT) ...
+    pass
+
+@auth_router.get('/google')
+async def login_google(request: Request):
+    redirect_uri = request.url_for('auth_google_callback')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@auth_router.get('/google/callback')
+async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
+    token = await oauth.google.authorize_access_token(request)
+    user_info = token.get('userinfo')
+    # ... (logic to find or create user from user_info, create JWT, and return it) ...
+    # You would likely redirect the user to the frontend with the token in a query param
+    pass
+
+app.include_router(auth_router)
+  
+def get_server_from_api_key(key: str = Security(api_key_header), db: Session = Depends(get_db)):
+    if not key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key is missing")
+    
+    key_hash = hashlib.sha256(key.encode()).hexdigest()
+    api_key_entry = db.query(models.ApiKey).filter(models.ApiKey.key_hash == key_hash).first()
+
+    if not api_key_entry:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
+    
+    return api_key_entry.server
 
 # Configure the Gemini API
 try:
@@ -97,50 +167,35 @@ async def diagnose_with_chat(request: ChatRequest):
             detail=f"An error occurred while communicating with the AI service: {e}",
         )
 
-@app.post("/api/v1/register", status_code=status.HTTP_200_OK)
-def register_server(server: schemas.ServerRegister, db: Session = Depends(get_db)):
-    # Check if server already exists
-    existing = db.query(models.Server).filter_by(fingerprint=server.fingerprint).first()
-    if existing:
-        token = create_access_token(str(existing.id))
-        return {"server_id": str(existing.id), "token": token}
+@app.post("/api/v1/agent/register", response_model=schemas.ServerWithApiKey, status_code=status.HTTP_201_CREATED)
+def agent_register(server_create: schemas.ServerCreate, db: Session = Depends(get_db)):
+    new_server = models.Server(hostname=server_create.hostname, tags=server_create.tags)
+    db.add(new_server)
+    db.commit()
+    db.refresh(new_server)
 
-    db_server = models.Server(
-        fingerprint=server.fingerprint,
-        pubkey=server.pubkey,
-        hostname=server.hostname,
-        tags=server.tags,
-    )
+    api_key_plain = secrets.token_hex(32)
+    api_key_hash = hashlib.sha256(api_key_plain.encode()).hexdigest()
+    
+    new_api_key = models.ApiKey(key_hash=api_key_hash, server_id=new_server.id)
+    db.add(new_api_key)
+    db.commit()
 
-    try:
-        db.add(db_server)
-        db.commit()
-        db.refresh(db_server)
-    except IntegrityError:
-        db.rollback()
-        # if another request inserted the same fingerprint at the same time
-        existing = db.query(models.Server).filter_by(fingerprint=server.fingerprint).first()
-        if existing:
-            token = create_access_token(str(existing.id))
-            return {"server_id": str(existing.id), "token": token}
-        raise
+    return {"id": new_server.id, "hostname": new_server.hostname, "api_key": api_key_plain}
 
-    token = create_access_token(str(db_server.id))
-    return {"server_id": str(db_server.id), "token": token}
+@app.post("/api/v1/servers/claim", response_model=schemas.Server)
+def claim_server(claim_request: schemas.ServerClaim, db: Session = Depends(get_db)):
+    server = get_server_from_api_key(claim_request.api_key, db)
+    if str(server.id) != str(claim_request.server_id):
+        raise HTTPException(status_code=403, detail="API Key does not match the provided Server ID.")
+    return server
+  
+@app.get("/api/v1/servers", response_model=List[schemas.Server])
+def get_all_servers(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    servers = db.query(models.Server).filter(models.Server.user_id == current_user.id).order_by(models.Server.hostname).all()
+    return servers
 
-
-def _require_server_id(creds: HTTPAuthorizationCredentials = Depends(auth_scheme)) -> UUID:
-    if not creds or creds.scheme.lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid auth scheme")
-    try:
-        sub = verify_access_token(creds.credentials)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    try:
-        return UUID(sub)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
+# ========== METRICS ==========
 @app.get("/api/v1/metrics/history")
 def historical_metrics(
     server_id: str = Query(...),
@@ -216,8 +271,7 @@ def recent_metrics(
             "metrics": row.metrics,  # [{"name": "cpu.percent", "value": 20}, ...]
             "meta": row.meta or {},
         })
-
-    print(f"[DEBUG] Fetched {len(results)} recent metrics for server_id {server_id}")
+ 
     return results
 
 
@@ -250,12 +304,12 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
 @app.post("/api/v1/metrics")
 async def post_metrics(
     payload: List[schemas.MetricIn],
-    server_uuid: UUID = Depends(_require_server_id),
+    server_uuid: models.Server = Depends(get_server_from_api_key),
     db: Session = Depends(get_db),
 ):
     accepted = 0
-    for item in payload:
-        if str(item.server_id) != str(server_uuid):
+    for item in payload: 
+        if str(item.server_id) != str(server_uuid.id):
             raise HTTPException(status_code=403, detail="server_id mismatch")
 
         # JSON-serializable metrics
@@ -333,12 +387,12 @@ def recent_logs(
 @app.post("/api/v1/logs")
 async def post_logs(
     payload: List[schemas.LogIn],  # define in schemas
-    server_uuid: UUID = Depends(_require_server_id),
+    server_uuid: models.Log = Depends(get_server_from_api_key),
     db: Session = Depends(get_db),
 ):
     accepted = 0
     for item in payload:
-        if str(item.server_id) != str(server_uuid):
+        if str(item.server_id) != str(server_uuid.id):
             raise HTTPException(status_code=403, detail="server_id mismatch")
 
         log_row = models.Log(

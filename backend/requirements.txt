@@ -6,4 +6,7 @@ alembic
 pydantic
 requests
 PyJWT>=2.8,<3
-google-generativeai 
+google-generativeai
+passlib[bcrypt]
+python-multipart
+authlib 

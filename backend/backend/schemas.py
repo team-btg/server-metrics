@@ -1,7 +1,26 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from uuid import UUID  
+
+class ServerCreate(BaseModel):
+    hostname: str
+    tags: Optional[List[str]] = []
+
+class Server(BaseModel):
+    id: UUID
+    hostname: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class ServerWithApiKey(Server):
+    api_key: str
+
+class ServerClaim(BaseModel):
+    server_id: UUID
+    api_key: str
+
+# --- Existing Schemas ---
 
 class ServerRegister(BaseModel):
     pubkey: str
