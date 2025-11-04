@@ -33,6 +33,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
 oauth = OAuth()
 oauth.register(
@@ -41,6 +43,18 @@ oauth.register(
     client_secret=GOOGLE_CLIENT_SECRET,
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={'scope': 'openid email profile'}
+)
+
+oauth.register(
+    name='github',
+    client_id=GITHUB_CLIENT_ID,
+    client_secret=GITHUB_CLIENT_SECRET,
+    access_token_url='https://github.com/login/oauth/access_token',
+    access_token_params=None,
+    authorize_url='https://github.com/login/oauth/authorize',
+    authorize_params=None,
+    api_base_url='https://api.github.com/',
+    client_kwargs={'scope': 'user:email'},
 )
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -104,6 +118,47 @@ async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
     # ... (logic to find or create user from user_info, create JWT, and return it) ...
     # You would likely redirect the user to the frontend with the token in a query param
     pass
+
+@auth_router.get('/google/callback')
+async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
+    # ... your existing google callback logic
+    pass
+
+# New GitHub Endpoints
+@auth_router.get('/github')
+async def login_github(request: Request):
+    redirect_uri = request.url_for('auth_github_callback')
+    return await oauth.github.authorize_redirect(request, redirect_uri)
+
+@auth_router.get('/github/callback')
+async def auth_github_callback(request: Request, db: Session = Depends(get_db)):
+    token = await oauth.github.authorize_access_token(request)
+    resp = await oauth.github.get('user', token=token)
+    profile = resp.json()
+    
+    # GitHub can have a null email if it's private. We might need to make a second request.
+    email = profile.get('email')
+    if not email:
+        resp_email = await oauth.github.get('user/emails', token=token)
+        emails = resp_email.json()
+        primary_email = next((e['email'] for e in emails if e['primary']), None)
+        email = primary_email
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Could not retrieve email from GitHub.")
+
+    # --- Find or Create User Logic (same as Google, just different provider name) ---
+    # user = db.query(models.User).filter(models.User.email == email).first()
+    # if not user:
+    #     user = models.User(email=email, provider='github')
+    #     db.add(user)
+    #     db.commit()
+    #
+    # # Create and return JWT
+    # access_token = create_access_token(data={"sub": user.email})
+    # return {"access_token": access_token, "token_type": "bearer"}
+    # For now, we'll just return the profile to show it works
+    return {"message": "GitHub login successful", "email": email}
 
 app.include_router(auth_router)
   
