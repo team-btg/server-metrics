@@ -2,12 +2,14 @@ import secrets
 import hashlib
 import asyncio
 import os
+from fastapi.responses import RedirectResponse
 import google.generativeai as genai 
 
-from fastapi import APIRouter, OAuth2PasswordBearer, OAuth2PasswordRequestForm, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware  
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc 
@@ -24,6 +26,8 @@ from passlib.context import CryptContext
 from authlib.integrations.starlette_client import OAuth
 
 load_dotenv()
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 Base.metadata.create_all(bind=engine)
 
@@ -61,6 +65,11 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 app = FastAPI()
 
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
+if not SESSION_SECRET_KEY:
+    raise ValueError("SESSION_SECRET_KEY is not set in the environment variables")
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
+ 
 # Allowed origins for your frontend
 origins = [
     "http://localhost:5173",  # Vite dev server
@@ -89,9 +98,23 @@ def get_db():
         
 # --- Dependency to get current user ---
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # ... (logic to decode JWT and fetch user from DB) ...
-    # This will be the core of your session management
-    pass
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = decode_jwt(token)
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except Exception:
+        raise credentials_exception
+    
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if user is None:
+        raise credentials_exception
+    return user
 
 # --- New Auth Router ---
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -115,15 +138,21 @@ async def login_google(request: Request):
 async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
     token = await oauth.google.authorize_access_token(request)
     user_info = token.get('userinfo')
-    # ... (logic to find or create user from user_info, create JWT, and return it) ...
-    # You would likely redirect the user to the frontend with the token in a query param
-    pass
+    email = user_info.get("email")
 
-@auth_router.get('/google/callback')
-async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
-    # ... your existing google callback logic
-    pass
+    if not email:
+        raise HTTPException(status_code=400, detail="Could not retrieve email from Google.")
 
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        user = models.User(email=email, provider='google')
+        db.add(user)
+        db.commit()
+
+    access_token = create_access_token(subject=user.email)
+    # Redirect to frontend with the token
+    return RedirectResponse(url=f"{FRONTEND_URL}/login/callback?token={access_token}")
+ 
 # New GitHub Endpoints
 @auth_router.get('/github')
 async def login_github(request: Request):
@@ -136,7 +165,6 @@ async def auth_github_callback(request: Request, db: Session = Depends(get_db)):
     resp = await oauth.github.get('user', token=token)
     profile = resp.json()
     
-    # GitHub can have a null email if it's private. We might need to make a second request.
     email = profile.get('email')
     if not email:
         resp_email = await oauth.github.get('user/emails', token=token)
@@ -147,19 +175,16 @@ async def auth_github_callback(request: Request, db: Session = Depends(get_db)):
     if not email:
         raise HTTPException(status_code=400, detail="Could not retrieve email from GitHub.")
 
-    # --- Find or Create User Logic (same as Google, just different provider name) ---
-    # user = db.query(models.User).filter(models.User.email == email).first()
-    # if not user:
-    #     user = models.User(email=email, provider='github')
-    #     db.add(user)
-    #     db.commit()
-    #
-    # # Create and return JWT
-    # access_token = create_access_token(data={"sub": user.email})
-    # return {"access_token": access_token, "token_type": "bearer"}
-    # For now, we'll just return the profile to show it works
-    return {"message": "GitHub login successful", "email": email}
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        user = models.User(email=email, provider='github')
+        db.add(user)
+        db.commit()
 
+    access_token = create_access_token(subject=user.email)
+    # Redirect to frontend with the token
+    return RedirectResponse(url=f"{FRONTEND_URL}/login/callback?token={access_token}")
+ 
 app.include_router(auth_router)
   
 def get_server_from_api_key(key: str = Security(api_key_header), db: Session = Depends(get_db)):
@@ -239,10 +264,20 @@ def agent_register(server_create: schemas.ServerCreate, db: Session = Depends(ge
     return {"id": new_server.id, "hostname": new_server.hostname, "api_key": api_key_plain}
 
 @app.post("/api/v1/servers/claim", response_model=schemas.Server)
-def claim_server(claim_request: schemas.ServerClaim, db: Session = Depends(get_db)):
+def claim_server(
+    claim_request: schemas.ServerClaim, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # Protect this endpoint
+):
     server = get_server_from_api_key(claim_request.api_key, db)
     if str(server.id) != str(claim_request.server_id):
         raise HTTPException(status_code=403, detail="API Key does not match the provided Server ID.")
+    
+    # Link the server to the current user
+    server.user_id = current_user.id
+    db.commit()
+    db.refresh(server)
+    
     return server
   
 @app.get("/api/v1/servers", response_model=List[schemas.Server])

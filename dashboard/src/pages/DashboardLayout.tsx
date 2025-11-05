@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { MainTabs } from "../components/MainTabs"; 
 import Sidebar from '../components/Sidebar';
 import { Menu, Server, PlusCircle, X } from 'lucide-react';
+import { useAuth } from "../context/AuthContext";
 
 interface ServerInfo {
   id: string;
@@ -9,6 +10,8 @@ interface ServerInfo {
 } 
 
 const DashboardLayout: React.FC = () => {
+  const { token, logout } = useAuth();
+  
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSidebarMinimized, setIsSidebarMinimized] = useState(true);  
   const [servers, setServers] = useState<ServerInfo[]>([]);
@@ -37,10 +40,16 @@ const DashboardLayout: React.FC = () => {
     e.preventDefault();
     setClaimError('');
 
+    if (!token) {
+      setClaimError("You are not logged in. Please log in again.");
+      logout(); // Optional: force logout if token is missing
+      return;
+    }
+
     try {
       const response = await fetch('http://localhost:8000/api/v1/servers/claim', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ server_id: claimServerId, api_key: claimApiKey }),
       });
 

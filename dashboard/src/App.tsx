@@ -1,16 +1,17 @@
 import './App.css'
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import LoginPage from './pages/LoginPage'; // Create this page
-import DashboardLayout from './pages/DashboardLayout'; // Create this layout
+import LoginPage from './pages/LoginPage';
+import DashboardLayout from './pages/DashboardLayout';
+import LoginCallbackPage from './pages/LoginCallbackPage'; 
 
 const App: React.FC = () => {
   const { token } = useAuth();
 
   return (
     <Routes>
-      <Route path="/login" element={!token ? <LoginPage /> : <Navigate to="/" />} />
-      {/* Add /register route here */}
+      <Route path="/login" element={!token ? <LoginPage /> : <Navigate to="/" />} /> 
+      <Route path="/login/callback" element={<LoginCallbackPage />} /> 
       <Route path="/*" element={token ? <DashboardLayout /> : <Navigate to="/login" />} />
     </Routes>
   );

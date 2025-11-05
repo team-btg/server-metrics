@@ -87,3 +87,6 @@ dmypy.json
 Thumbs.db
 
 .env
+alembic.ini
+backend/.env
+alembic/

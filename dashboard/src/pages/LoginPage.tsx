@@ -10,7 +10,7 @@ const LoginPage: React.FC = () => {
         <div className="space-y-4">
           {/* This is an `<a>` tag because it needs to navigate to a different origin (your backend) to start the OAuth flow */}
           <a
-            href="/api/v1/auth/google"
+            href="http://localhost:8000/api/v1/auth/google"
             className="w-full flex items-center justify-center bg-white text-gray-800 font-semibold py-2 px-4 rounded-md hover:bg-gray-200 transition-colors"
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 48 48">
@@ -23,7 +23,7 @@ const LoginPage: React.FC = () => {
             Sign in with Google
           </a>
         <a
-            href="/api/v1/auth/github"
+            href="http://localhost:8000/api/v1/auth/github"
             className="w-full flex items-center justify-center bg-[#333] text-white font-semibold py-2 px-4 rounded-md hover:bg-[#444] transition-colors"
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from uuid import UUID  
@@ -20,7 +20,24 @@ class ServerClaim(BaseModel):
     server_id: UUID
     api_key: str
 
-# --- Existing Schemas ---
+class UserBase(BaseModel):
+    email: EmailStr
+
+class UserCreate(UserBase):
+    password: str
+
+class User(UserBase):
+    id: int
+    # The `servers` field will be populated automatically by SQLAlchemy
+    servers: List[Server] = []
+    model_config = ConfigDict(from_attributes=True)
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
 
 class ServerRegister(BaseModel):
     pubkey: str
