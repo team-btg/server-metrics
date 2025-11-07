@@ -36,6 +36,7 @@ class Metric(Base):
     server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"))
     timestamp = Column(DateTime(timezone=True))
     metrics = Column(JSON)  # array of {name, value}
+    processes = Column(JSON)  # array of process info dicts
     meta = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

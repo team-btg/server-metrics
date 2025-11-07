@@ -9,8 +9,7 @@ class ServerCreate(BaseModel):
 
 class Server(BaseModel):
     id: UUID
-    hostname: str
-    
+    hostname: str 
     model_config = ConfigDict(from_attributes=True)
 
 class ServerWithApiKey(Server):
@@ -27,8 +26,7 @@ class UserCreate(UserBase):
     password: str
 
 class User(UserBase):
-    id: int
-    # The `servers` field will be populated automatically by SQLAlchemy
+    id: int 
     servers: List[Server] = []
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,19 +42,12 @@ class ServerRegister(BaseModel):
     fingerprint: str
     hostname: str
     tags: Dict[str, str]
-
-class ServerOut(BaseModel):
-    server_id: UUID
-    token: str
-
-class MetricSample(BaseModel):
-    name: str
-    value: float
- 
+  
 class MetricIn(BaseModel):
     server_id: UUID
     timestamp: datetime
     metrics: List[Dict[str, Any]] 
+    processes: Optional[List[Dict[str, Any]]] = None
     meta: Optional[Dict[str, Any]] = None
 
 class LogIn(BaseModel):

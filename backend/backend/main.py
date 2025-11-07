@@ -321,6 +321,7 @@ def historical_metrics(
         {
             "server_id": str(row.server_id),
             "timestamp": row.timestamp.isoformat(),
+            "processes": row.processes or [],
             "metrics": row.metrics,
             "meta": row.meta or {},
         }
@@ -401,17 +402,25 @@ async def post_metrics(
     for item in payload: 
         if str(item.server_id) != str(server_uuid.id):
             raise HTTPException(status_code=403, detail="server_id mismatch")
-
+  
         # JSON-serializable metrics
         metrics_json = [
             m if isinstance(m, dict) else m.model_dump() if hasattr(m, "model_dump") else m.dict()
             for m in item.metrics
         ]
 
+        # JSON-serializable metrics processes
+        metrics_processes_json = [
+            p if isinstance(p, dict) else p.model_dump() if hasattr(p, "model_dump") else p.dict()
+            for p in (item.processes or [])
+        ]
+ 
+
         db_metric = models.Metric(
             server_id=item.server_id,
             timestamp=item.timestamp,
-            metrics=metrics_json,
+            metrics=metrics_json, 
+            processes=metrics_processes_json,
             meta=item.meta or {},
         )
         db.add(db_metric)
@@ -424,7 +433,7 @@ async def post_metrics(
             "metrics": metrics_json,
             "meta": item.meta or {},
         })
-        # print(f"[DEBUG] Broadcasting to {server_uuid}: {data}")
+        
         await manager.broadcast(str(item.server_id), {"type": "metric", "data": data})
 
     db.commit()

@@ -14,6 +14,13 @@ export interface NetworkMetric {
   broadcast: string | null;
 }
 
+export interface Process {
+  pid: number;
+  name: string;
+  cpu_percent: number;
+  memory_percent: number;
+}
+
 export interface ServerInfo {
   hostname: string;
   os: string;
@@ -51,6 +58,8 @@ export interface MetricPoint {
   networkIn?: number;
   networkOut?: number;
   networkTotal?: number;
+  // NEW: Processes field
+  processes?: Process[];
   // Meta fields
   meta?: {
     uptime: number;
@@ -108,7 +117,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
           return;
         }
 
-        const data = await res.json(); 
+        const data = await res.json();  
         
         // Normalize DB data into chart format (same logic as before)
         const historical: MetricPoint[] = data.map((item: any) => ({
@@ -117,6 +126,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
           memory: item.metrics.find((m: any) => m.name === "mem.percent")?.value ?? 0,
           disk: item.metrics?.find((x: any) => x.name === "disk")?.value ?? [],
           network: item.metrics?.find((x: any) => x.name === "network")?.value ?? [],
+          processes: item.processes || [],
           serverInfo: item.meta?.server_info, 
           meta: item.meta, 
           name: item.meta?.formatted?.name || item.meta?.server_info?.hostname,

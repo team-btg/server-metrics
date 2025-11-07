@@ -82,8 +82,7 @@ def load_or_register_agent():
     except Exception as e:
         print(f"[FATAL] Could not register agent with backend: {e}")
         return None, None
-
-
+ 
 # ==============================
 # METRICS COLLECTION
 # ==============================
@@ -200,6 +199,18 @@ def collect_metrics(server_id):
     except:
         load_avg = "N/A"
 
+    # --- Get Top 5 Processes by CPU ---
+    processes = []
+    for proc in sorted(psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']), key=lambda p: p.info['cpu_percent'], reverse=True)[:5]:
+        try:
+            proc.cpu_percent(interval=0.01)
+            time.sleep(0.01)
+            info = proc.info
+            info['cpu_percent'] = proc.cpu_percent()
+            processes.append(info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
     # Enhanced server details
     server_info = {
         "hostname": socket.gethostname(),
@@ -224,6 +235,7 @@ def collect_metrics(server_id):
             {"name": "disk", "value": disk_usage},
             {"name": "network", "value": net_info},
         ],
+        "processes": processes,
         "meta": {
             "uptime": int(uptime_seconds),
             "uptime_days": uptime_days,
@@ -444,8 +456,8 @@ def main():
 
     print(f"[INFO] Agent started for {server_id}")
 
-    log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event), daemon=True)
-    log_thread.start()
+    # log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event), daemon=True)
+    # log_thread.start()
     
     try:
         while not stop_event.is_set():
