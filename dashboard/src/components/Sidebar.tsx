@@ -17,8 +17,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isMinimized, setIs
     md:relative md:translate-x-0 
     transition-all duration-300 ease-in-out
     z-30
-    ${isMinimized ? 'md:w-20' : 'md:w-64'}
-    ${!isMinimized ? 'w-64' : ''}
+    ${isMinimized ? 'md:w-20' : 'md:w-46'}
+    ${!isMinimized ? 'w-46' : ''}
   `;
 
   return (
