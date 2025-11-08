@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { MainTabs } from "../components/MainTabs"; 
 import Sidebar from '../components/Sidebar';
-import { Server, PlusCircle, X, LogOut } from 'lucide-react';
+import SettingsModal from '../components/SettingsModal'; // Import the new modal
+import { Server, PlusCircle, X, LogOut, Settings } from 'lucide-react'; // Add Settings icon
 import { useAuth } from "../context/AuthContext";
 
 interface ServerInfo {
@@ -11,13 +12,15 @@ interface ServerInfo {
 
 const DashboardLayout: React.FC = () => {
   const { token, logout } = useAuth();
-  
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isSidebarMinimized, setIsSidebarMinimized] = useState(true);  
+  const [isSidebarMinimized, setIsSidebarMinimized] = useState(false); 
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   
+  // State for modals
   const [isClaiming, setIsClaiming] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // <-- State for settings modal
+
   const [claimServerId, setClaimServerId] = useState('');
   const [claimApiKey, setClaimApiKey] = useState('');
   const [claimError, setClaimError] = useState('');
@@ -89,7 +92,6 @@ return (
         isMinimized={isSidebarMinimized}
         setIsMinimized={setIsSidebarMinimized}
       >
-        {/* This flex container correctly pushes the logout button to the bottom */}
         <div className="flex flex-col h-full">
           {/* Server List (make this scrollable if the list gets too long) */}
           <div className="flex-grow px-2 py-4 space-y-2 overflow-y-auto">
@@ -107,8 +109,19 @@ return (
               {!isSidebarMinimized && <span>Add Server</span>}
             </button>
           </div>
-          {/* Logout Button Section */}
-          <div className="px-2 py-4 border-t border-gray-700">
+
+          {/* Settings and Logout Button Section */}
+          <div className="px-2 py-4 border-t border-gray-700 space-y-2">
+            <button 
+              onClick={() => setIsSettingsOpen(true)}
+              disabled={!selectedServerId} // Disable if no server is selected
+              className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 transition-colors ${
+                !selectedServerId ? 'cursor-not-allowed opacity-50' : 'bg-gray-700'
+              }`}
+            >
+              <Settings size={20} />
+              {!isSidebarMinimized && <span>Settings</span>}
+            </button>
             <button 
               onClick={logout} 
               className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 bg-red-600 hover:text-white transition-colors`}
@@ -134,12 +147,12 @@ return (
         )}
       </main>
 
-      {/* Claim Server Modal */}
+      {/* Modals are now rendered here */}
       {isClaiming && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-[#1e293b] p-6 rounded-lg shadow-xl max-w-md w-full relative">
-            <button onClick={() => setIsClaiming(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-            <h2 className="text-xl font-bold mb-4">Claim New Server</h2>
+            <button onClick={() => setIsClaiming(false)} className="bg-transparent absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
+            <h2 className="text-xl font-semibold text-white mb-4">Claim New Server</h2>
             <p className="text-gray-400 mb-6">Enter the details provided by the agent.</p>
             <form onSubmit={handleClaimServer}>
               <div className="space-y-4">
@@ -159,6 +172,15 @@ return (
             </form>
           </div>
         </div>
+      )}
+      
+      {selectedServerId && (
+        <SettingsModal 
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          serverId={selectedServerId}
+          token={token || ''}
+        />
       )}
     </div>
   );

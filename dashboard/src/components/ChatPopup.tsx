@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { MetricPoint } from '../hooks/useMetrics';

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from "recharts";
-import Card from "./Card";
-import ChatPopup from "./ChatPopup";
+import Card from "./Card"; 
 import type { MetricPoint } from "../hooks/useMetrics";
 
 interface StatCardProps {
@@ -370,10 +369,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, token }) => {
             </ResponsiveContainer>
           </div>
         </div>
-      )}
-
-      {/* Add the Chat Popup Component Here */}
-      <ChatPopup latestMetric={latestMetric} token={token} />
+      )} 
     </div>
   );
 };

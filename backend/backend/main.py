@@ -354,43 +354,7 @@ def historical_metrics(
     ]
     
     return results
-
-@app.get("/api/v1/metrics/recent")
-def recent_metrics(
-    server_id: str = Query(...),
-    limit: int = Query(300, ge=1, le=2000),
-    db: Session = Depends(get_db)
-):
-    try:
-        server_uuid = UUID(server_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid server_id")
-
-    # Query the metrics table for this server_id
-    rows = (
-        db.query(models.Metric)
-          .filter(models.Metric.server_id == server_uuid)
-          .order_by(desc(models.Metric.timestamp))
-          .limit(limit)
-          .all()
-    )
-
-    # Reverse so oldest -> newest
-    rows = list(reversed(rows))
-
-    # Convert to JSON-serializable format
-    results = []
-    for row in rows:
-        results.append({
-            "server_id": str(row.server_id),
-            "timestamp": row.timestamp.isoformat(),
-            "metrics": row.metrics,  # [{"name": "cpu.percent", "value": 20}, ...]
-            "meta": row.meta or {},
-        })
  
-    return results
-
-
 @app.websocket("/api/v1/ws/metrics")
 async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: Optional[str] = Query(None)):
     if not token:

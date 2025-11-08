@@ -1,17 +1,11 @@
-import React, { useState } from "react";
-import { useMetrics } from "../hooks/useMetrics"; 
-  
+import type { MetricPoint } from "../hooks/useMetrics";
+
 interface ProcessListProps {
-  serverId: string;
-  token?: string;
+  metricPoint: MetricPoint[];
 }
 
-const ProcessList: React.FC<ProcessListProps> = ({ serverId, token }) => {
-  const [period, setPeriod] = useState('1h');
-  const [interval, setInterval] = useState(5000);
-  const [maximizedChart, setMaximizedChart] = useState<string | null>(null);
- 
-  const metrics = useMetrics(serverId, period, interval, token); 
+const ProcessList: React.FC<ProcessListProps> = ({ metricPoint }) => {  
+  const metrics = metricPoint; 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
   if (!latestMetric) {
     return <div className="text-center text-gray-400 p-8">No process data available.</div>;
