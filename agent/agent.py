@@ -456,8 +456,8 @@ def main():
 
     print(f"[INFO] Agent started for {server_id}")
 
-    # log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event), daemon=True)
-    # log_thread.start()
+    log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event), daemon=True)
+    log_thread.start()
     
     try:
         while not stop_event.is_set():

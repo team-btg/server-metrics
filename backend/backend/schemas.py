@@ -2,6 +2,39 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from uuid import UUID  
+import enum
+
+class AlertMetric(str, enum.Enum):
+    CPU = "cpu"
+    MEMORY = "memory"
+    DISK = "disk"
+
+class AlertOperator(str, enum.Enum):
+    GREATER_THAN = ">"
+    LESS_THAN = "<"
+
+class AlertRuleBase(BaseModel):
+    metric: AlertMetric
+    operator: AlertOperator
+    threshold: float
+    duration_minutes: int = 5
+    is_enabled: bool = True
+
+class AlertRuleCreate(AlertRuleBase):
+    pass
+ 
+class AlertRuleUpdate(BaseModel):
+    metric: Optional[AlertMetric] = None
+    operator: Optional[AlertOperator] = None
+    threshold: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    is_enabled: Optional[bool] = None
+ 
+class AlertRule(AlertRuleBase):
+    id: int
+    server_id: UUID
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class ServerCreate(BaseModel):
     hostname: str

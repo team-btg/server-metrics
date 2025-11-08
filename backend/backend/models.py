@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, func
+import enum
+from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, func, Float, Boolean, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -29,7 +30,37 @@ class Server(Base):
     owner = relationship("User", back_populates="servers")
     
     api_keys = relationship("ApiKey", back_populates="server")
+
+class AlertMetric(str, enum.Enum):
+    CPU = "cpu"
+    MEMORY = "memory"
+    DISK = "disk"
+
+class AlertOperator(str, enum.Enum):
+    GREATER_THAN = ">"
+    LESS_THAN = "<"
+
+class AlertRule(Base):
+    __tablename__ = "alert_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
+    metric = Column(Enum(AlertMetric), nullable=False)
+    operator = Column(Enum(AlertOperator), nullable=False)
+    threshold = Column(Float, nullable=False)
+    duration_minutes = Column(Integer, nullable=False, default=5) # e.g., must be over threshold for 5 mins
+    is_enabled = Column(Boolean, default=True)
     
+    server = relationship("Server")
+
+class AlertEvent(Base):
+    __tablename__ = "alert_events"
+    id = Column(Integer, primary_key=True, index=True)
+    rule_id = Column(Integer, ForeignKey("alert_rules.id"), nullable=False)
+    triggered_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    rule = relationship("AlertRule")
+           
 class Metric(Base):
     __tablename__ = "metrics"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

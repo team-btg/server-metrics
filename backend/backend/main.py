@@ -184,7 +184,32 @@ async def auth_github_callback(request: Request, db: Session = Depends(get_db)):
     access_token = create_access_token(subject=user.email)
     # Redirect to frontend with the token
     return RedirectResponse(url=f"{FRONTEND_URL}/login/callback?token={access_token}")
- 
+
+alerts_router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"], dependencies=[Depends(get_current_user)])
+
+@alerts_router.post("/servers/{server_id}", response_model=schemas.AlertRule)
+def create_alert_rule(server_id: UUID, rule: schemas.AlertRuleCreate, db: Session = Depends(get_db)):
+    # Logic to create a new AlertRule in the DB for the given server_id
+    # Ensure the current user owns this server
+    pass
+
+@alerts_router.get("/servers/{server_id}", response_model=List[schemas.AlertRule])
+def get_alert_rules_for_server(server_id: UUID, db: Session = Depends(get_db)):
+    # Logic to get all rules for a server
+    # Ensure the current user owns this server
+    pass
+
+@alerts_router.put("/{rule_id}", response_model=schemas.AlertRule)
+def update_alert_rule(rule_id: int, rule: schemas.AlertRuleUpdate, db: Session = Depends(get_db)):
+    # Logic to update a rule
+    pass
+
+@alerts_router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_alert_rule(rule_id: int, db: Session = Depends(get_db)):
+    # Logic to delete a rule
+    pass
+
+app.include_router(alerts_router) 
 app.include_router(auth_router)
   
 def get_server_from_api_key(key: str = Security(api_key_header), db: Session = Depends(get_db)):
@@ -368,28 +393,44 @@ def recent_metrics(
 
 @app.websocket("/api/v1/ws/metrics")
 async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: Optional[str] = Query(None)):
-    require_token = False
-    if token:
-        try:
-            claims = decode_jwt(token)
-            sub = claims.get("sub")
-            if not sub or sub != server_id:
-                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                return
-        except Exception:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-    elif require_token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
         return
 
+    db = SessionLocal()
+    try:
+        payload = decode_jwt(token)
+        email: str = payload.get("sub")
+        if not email:
+            raise Exception("No email in token")
+
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if not user:
+            raise Exception("User not found")
+
+        # Verify the server belongs to the user
+        server = db.query(models.Server).filter(
+            models.Server.id == server_id,
+            models.Server.user_id == user.id
+        ).first()
+
+        if not server:
+            raise Exception("Server not found or access denied")
+
+    except Exception as e:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Authentication failed: {e}")
+        db.close()
+        return
+    
+    # If authentication is successful, connect the user
     await manager.connect(server_id, websocket)
     try:
-        # Keep the connection alive indefinitely
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(1)  # Keep connection alive
     except WebSocketDisconnect:
         await manager.disconnect(server_id, websocket)
+    finally:
+        db.close()
 
 
 @app.post("/api/v1/metrics")
@@ -436,19 +477,62 @@ async def post_metrics(
         
         await manager.broadcast(str(item.server_id), {"type": "metric", "data": data})
 
+    evaluate_alerts_for_server(str(server_uuid), db)
+
     db.commit()
     return {"accepted": accepted}
+
+def evaluate_alerts_for_server(server_id: UUID, db: Session):
+    # 1. Get all enabled rules for this server.
+    # 2. For each rule:
+    #    a. Fetch recent metrics for the rule's duration (e.g., last 5 minutes).
+    #    b. Check if ALL recent metrics violate the threshold (e.g., all have CPU > 90%).
+    #    c. If they do, check if an alert is already "firing" for this rule.
+    #    d. If not, create a new AlertEvent and send a notification.
+    # 3. For all "firing" alerts, check if the condition is now resolved.
+    #    a. If resolved, update the AlertEvent with `resolved_at` and send a "resolved" notification.
+    pass
 
 # ========== LOGS ==========
 @app.websocket("/api/v1/ws/logs")
 async def ws_logs(websocket: WebSocket, server_id: str = Query(...), token: Optional[str] = Query(None)):
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
+        return
+
+    db = SessionLocal()
+    try:
+        payload = decode_jwt(token)
+        email: str = payload.get("sub")
+        if not email:
+            raise Exception("No email in token")
+
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if not user:
+            raise Exception("User not found")
+
+        # Verify the server belongs to the user
+        server = db.query(models.Server).filter(
+            models.Server.id == server_id,
+            models.Server.user_id == user.id
+        ).first()
+
+        if not server:
+            raise Exception("Server not found or access denied")
+
+    except Exception as e:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Authentication failed: {e}")
+        db.close()
+        return
+
     await manager.connect(server_id, websocket)
     try:
-        # Keep the connection alive indefinitely
         while True:
             await asyncio.sleep(1)
     except WebSocketDisconnect:
         await manager.disconnect(server_id, websocket)
+    finally:
+        db.close()
 
 @app.get("/api/v1/logs/recent")
 def recent_logs(

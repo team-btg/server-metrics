@@ -1,10 +1,8 @@
 import React, { useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from "recharts";
-import { useMetrics } from "../hooks/useMetrics"; 
-import PeriodSelector from './PeriodSelector';
-import IntervalSelector from './IntervalSelector';
 import Card from "./Card";
 import ChatPopup from "./ChatPopup";
+import type { MetricPoint } from "../hooks/useMetrics";
 
 interface StatCardProps {
   title: string;
@@ -21,73 +19,20 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, color }) =>
 );
 
 interface DashboardProps {
-  serverId: string;
+  metricPoint: MetricPoint[];
   token?: string;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ serverId, token }) => {
-  const [period, setPeriod] = useState('1h');
-  const [interval, setInterval] = useState(5000);
+export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, token }) => {
+
   const [maximizedChart, setMaximizedChart] = useState<string | null>(null);
- 
-  const metrics = useMetrics(serverId, period, interval, token); 
+  const metrics = metricPoint; 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
-  
-  const getSystemStatus = () => {
-    if (!latestMetric) return { status: 'loading', text: 'Loading...', color: 'text-gray-700', bgColor: 'bg-gray-700' };
-    
-    const cpuUsage = latestMetric.cpu;
-    const memoryUsage = latestMetric.memory;
-    const diskUsage = latestMetric.diskPercent || 0;
-    
-    // Check if metrics are stale (older than 2 minutes)
-    const metricTime = new Date(latestMetric.timestamp).getTime();
-    const currentTime = new Date().getTime();
-    const isStale = (currentTime - metricTime) > 120000; // 2 minutes
-    
-    if (isStale) {
-      return { status: 'stale', text: 'System Data Stale', color: 'text-orange-400', bgColor: 'bg-orange-700' };
-    }
-    
-    // Critical if any metric is very high
-    if (cpuUsage > 95 || memoryUsage > 95 || diskUsage > 95) {
-      return { status: 'critical', text: 'System Critical', color: 'text-red-400', bgColor: 'bg-red-700' };
-    }
-    
-    // Warning if any metric is high
-    if (cpuUsage > 80 || memoryUsage > 85 || diskUsage > 90) {
-      return { status: 'warning', text: 'System Under Load', color: 'text-yellow-400', bgColor: 'bg-yellow-700' };
-    }
-    
-    // Online if metrics are normal
-    if (cpuUsage >= 0 && memoryUsage >= 0) {
-      return { status: 'online', text: 'System Online', color: 'text-green-400', bgColor: 'bg-green-700' };
-    }
-
-    return { status: 'unknown', text: 'System Unknown', color: 'text-gray-400', bgColor: 'bg-gray-700' };
-  };
-
-  const systemStatus = getSystemStatus();
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
       {/* Header with reduced padding */}
-      <div className="p-4 border-b border-gray-700">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Hub</h1>
-          <div className="flex items-center space-x-2">
-            <span className={`relative flex h-3 w-3`}>
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${systemStatus.bgColor} opacity-75`}></span>
-              <span className={`relative inline-flex rounded-full h-3 w-3 ${systemStatus.bgColor}`}></span>
-            </span>
-            <span className={`font-semibold ${systemStatus.color}`}>{systemStatus.text}</span> 
-             
-            <PeriodSelector period={period} setPeriod={setPeriod} />
-            <IntervalSelector interval={interval} setInterval={setInterval} />
 
-          </div>
-        </div> 
-      </div>
 
       <div className="p-4 space-y-4"> 
         <div className="flex justify-center">
