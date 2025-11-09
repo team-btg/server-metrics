@@ -826,20 +826,24 @@ async def ws_logs(websocket: WebSocket, server_id: str = Query(...), token: Opti
     finally:
         db.close()
 
-@app.get("/api/v1/logs/recent")
+@app.get("/api/v1/logs/{server_id}")
 def recent_logs(
-    server_id: str = Query(...),
+    server_id: UUID,
     limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    try:
-        server_uuid = UUID(server_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid server_id")
+    server = db.query(models.Server).filter(
+        models.Server.id == server_id,
+        models.Server.user_id == current_user.id
+    ).first()
 
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+ 
     rows = (
         db.query(models.Log)
-        .filter(models.Log.server_id == server_uuid)
+        .filter(models.Log.server_id == server.id)
         .order_by(desc(models.Log.timestamp))
         .limit(limit)
         .all()

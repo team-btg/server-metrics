@@ -348,37 +348,49 @@ def logs_worker(server_id, token, stop_event):
 def collect_logs(server_id, limit=50):
     logs = []
     system = platform.system()
+    
+    # Load the last known state for logs
+    state = {}
+    if LOG_STATE_FILE.exists():
+        try:
+            with open(LOG_STATE_FILE, "r") as f:
+                state = json.load(f)
+        except json.JSONDecodeError:
+            state = {}
 
     if system == "Windows":
         try:
             import win32evtlog
-            import win32evtlogutil
+            # Constants for event types
+            EVENTLOG_ERROR_TYPE = 1
+            EVENTLOG_AUDIT_FAILURE_TYPE = 16
 
-            # Load the last record number we processed
-            last_record_number = 0
-            if LOG_STATE_FILE.exists():
-                with open(LOG_STATE_FILE, "r") as f:
-                    state = json.load(f)
-                    last_record_number = state.get("last_record_number", 0)
-
+            last_record_number = state.get("last_record_number", 0)
+            
             server = 'localhost'
             logtype = 'System'
             hand = win32evtlog.OpenEventLog(server, logtype)
             
-            # Read forward from the last known record
             flags = win32evtlog.EVENTLOG_FORWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
+            
+            if last_record_number == 0:
+                total_records = win32evtlog.GetNumberOfEventLogRecords(hand)
+                last_record_number = max(0, total_records - limit)
+
+            events = win32evtlog.ReadEventLog(hand, flags, last_record_number)
             
             newest_record_number = last_record_number
             
-            events_read = 0
-            while events_read < limit:
-                events = win32evtlog.ReadEventLog(hand, flags, last_record_number)
-                if not events:
-                    break
-
+            if events:
                 for ev in events:
-                    # Skip records we've already processed
                     if ev.RecordNumber <= last_record_number:
+                        continue
+                    
+                    newest_record_number = max(newest_record_number, ev.RecordNumber)
+
+                    # --- FILTERING LOGIC FOR WINDOWS ---
+                    # Only include Error events or Audit Failures
+                    if ev.EventType not in [EVENTLOG_ERROR_TYPE, EVENTLOG_AUDIT_FAILURE_TYPE]:
                         continue
 
                     logs.append({
@@ -390,23 +402,13 @@ def collect_logs(server_id, limit=50):
                         "message": " ".join(s for s in ev.StringInserts if s) if ev.StringInserts else "No message",
                         "meta": {"record_number": ev.RecordNumber}
                     })
-                    
-                    newest_record_number = max(newest_record_number, ev.RecordNumber)
-                    events_read += 1
-                    if events_read >= limit:
-                        break
-                
-                # If we processed events, update the starting point for the next read call in this loop
-                last_record_number = newest_record_number
-                if events_read >= limit:
-                    break
-
+            
             win32evtlog.CloseEventLog(hand)
 
-            # Save the newest record number for the next run
-            if newest_record_number > 0:
+            if newest_record_number > last_record_number:
+                state["last_record_number"] = newest_record_number
                 with open(LOG_STATE_FILE, "w") as f:
-                    json.dump({"last_record_number": newest_record_number}, f)
+                    json.dump(state, f)
 
         except ImportError:
             print("[WARN] 'pywin32' not installed. Cannot fetch Windows Event Logs.")
@@ -414,21 +416,53 @@ def collect_logs(server_id, limit=50):
             print(f"[ERR] Could not fetch Windows logs: {e}")
 
     elif system == "Linux":
+        log_file_path = "/var/log/syslog"
+        last_pos = state.get("syslog_pos", 0)
+        
         try:
-            with open("/var/log/syslog", "r") as f:
-                lines = f.readlines()[-limit:]
+            if not os.path.exists(log_file_path):
+                return []
+
+            with open(log_file_path, "r", encoding='utf-8', errors='ignore') as f:
+                current_size = os.fstat(f.fileno()).st_size
+                if current_size < last_pos:
+                    last_pos = 0
+                
+                f.seek(last_pos)
+                lines = f.readlines()
+                new_pos = f.tell()
+
             for line in lines:
+                line_lower = line.lower()
+                # --- FILTERING LOGIC FOR LINUX ---
+                # Only include lines containing 'error', 'critical', 'fail', or 'failed'
+                if not any(keyword in line_lower for keyword in ['error', 'critical', 'fail', 'failed']):
+                    continue
+
+                # Determine level from content
+                level = "Error"
+                if "critical" in line_lower:
+                    level = "Critical"
+
                 logs.append({
                     "server_id": server_id,
                     "timestamp": datetime.datetime.utcnow().isoformat(),
-                    "level": "Info",
+                    "level": level,
                     "source": "syslog",
                     "event_id": None,
                     "message": line.strip(),
                     "meta": {}
                 })
+            
+            if new_pos > last_pos:
+                state["syslog_pos"] = new_pos
+                with open(LOG_STATE_FILE, "w") as f:
+                    json.dump(state, f)
+
+        except PermissionError:
+            print(f"[ERR] Permission denied for {log_file_path}. Run agent with sudo or add user to 'adm' group.")
         except Exception as e:
-            print("[ERR] Could not fetch syslog:", e)
+            print(f"[ERR] Could not fetch syslog: {e}")
 
     return logs
 

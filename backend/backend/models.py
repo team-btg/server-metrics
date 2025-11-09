@@ -26,6 +26,8 @@ class Server(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     metrics = relationship("Metric", back_populates="server")
 
+    logs = relationship("Log", back_populates="server", cascade="all, delete-orphan")
+
     user_id = Column(Integer, ForeignKey("users.id"))
     webhook_url = Column(String, nullable=True)
     webhook_format = Column(String, nullable=True) # e.g., 'slack_discord' or 'teams'
@@ -81,13 +83,15 @@ class Log(Base):
     __tablename__ = "logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    server_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False, index=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
     level = Column(String, index=True)   # Info, Warning, Error
     source = Column(String, nullable=True)
     event_id = Column(String, nullable=True)
     message = Column(String, nullable=False)
     meta = Column(JSON, nullable=True)
+
+    server = relationship("Server", back_populates="logs")
 
 class ApiKey(Base):
     __tablename__ = "api_keys"

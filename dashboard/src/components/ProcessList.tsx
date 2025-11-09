@@ -1,40 +1,75 @@
-import type { MetricPoint } from "../hooks/useMetrics";
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { MetricPoint } from '../hooks/useMetrics';
+
+// Define interfaces for process data
+interface Process {
+  pid: number;
+  name: string;
+  cpu_percent: number;
+  memory_percent: number;
+}
 
 interface ProcessListProps {
   metricPoint: MetricPoint[];
 }
 
+// Fetch the latest metric data which contains the process list
+const fetchLatestMetric = async (serverId: string, token: string) => {
+  const response = await fetch(`http://localhost:8000/api/v1/metrics/${serverId}?limit=1`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch process data');
+  }
+  const data = await response.json();
+  // The API returns an array, we only need the first (and only) item
+  return data.length > 0 ? data[0] : null;
+};
+
+
 const ProcessList: React.FC<ProcessListProps> = ({ metricPoint }) => {  
-  const metrics = metricPoint; 
-  const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
-  if (!latestMetric) {
-    return <div className="text-center text-gray-400 p-8">No process data available.</div>;
-  } 
-  const processes = latestMetric.processes || [];
+  const metrics = metricPoint;  
+
+  if (!metrics) return <p className="text-center p-8">No process data available.</p>;
+
+  const latestMetric = metrics[metrics.length - 1];
+  const processes: Process[] = latestMetric?.processes || [];
+
   return (
     <div className="p-4">
-      <h3 className="text-lg font-semibold mb-4 text-white">Top Processes by CPU</h3>
-      <div className="bg-gray-800 rounded-lg shadow overflow-hidden">
-        <table className="min-w-full">
-          <thead className="bg-gray-700 text-xs uppercase font-semibold text-gray-300">
-            <tr>
-              <th className="px-6 py-3 text-left">PID</th>
-              <th className="px-6 py-3 text-left">Name</th>
-              <th className="px-6 py-3 text-right">CPU %</th>
-              <th className="px-6 py-3 text-right">Memory %</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-700">
-            {processes.map((proc) => (
-              <tr key={proc.pid} className="hover:bg-gray-700/50">
-                <td className="px-6 py-4 whitespace-nowrap text-gray-300">{proc.pid}</td>
-                <td className="px-6 py-4 whitespace-nowrap font-medium text-white">{proc.name}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-gray-300">{proc.cpu_percent.toFixed(2)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-gray-300">{proc.memory_percent.toFixed(2)}</td>
+      <h1 className="text-2xl font-bold text-white mb-4">Top Processes</h1>
+      <div className="bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-700">
+            <thead className="bg-gray-900">
+              <tr>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">PID</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Name</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">CPU %</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Memory %</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="bg-gray-800 divide-y divide-gray-700">
+              {processes.length > 0 ? (
+                processes.map((proc) => (
+                  <tr key={proc.pid} className="hover:bg-gray-700/50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{proc.pid}</td>
+                    <td className="px-6 py-4 whitespace-nowrap font-medium text-white">{proc.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-300">{proc.cpu_percent.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-300">{proc.memory_percent.toFixed(2)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={4} className="text-center py-12 text-gray-400">
+                    No process data available. The agent might be offline or not sending process info.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -35,7 +35,7 @@ const fetchAlertEvents = async (serverId: string, token: string): Promise<AlertE
 const AlertHistory: React.FC<AlertHistoryProps> = ({ serverId, token }) => {
   const queryClient = useQueryClient(); // Get the query client instance
 
-  const { data: events, isLoading, error, refetch } = useQuery({
+  const { data: events, isLoading, error } = useQuery({
     queryKey: ['alertEvents', serverId],
     queryFn: () => fetchAlertEvents(serverId, token),
     refetchInterval: 30000, // Refetch every 30 seconds
