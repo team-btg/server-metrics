@@ -29,6 +29,7 @@ class Server(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     webhook_url = Column(String, nullable=True)
     webhook_format = Column(String, nullable=True) # e.g., 'slack_discord' or 'teams'
+    webhook_headers = Column(JSON, nullable=True)
 
     owner = relationship("User", back_populates="servers") 
     api_keys = relationship("ApiKey", back_populates="server")

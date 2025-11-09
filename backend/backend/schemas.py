@@ -38,6 +38,14 @@ class AlertRule(AlertRuleBase):
     
     model_config = ConfigDict(from_attributes=True)
 
+class AlertEventRead(BaseModel):
+    id: int
+    triggered_at: datetime
+    resolved_at: Optional[datetime] = None
+    rule: AlertRule
+
+    model_config = ConfigDict(from_attributes=True)
+
 class ServerCreate(BaseModel):
     hostname: str
     tags: Optional[List[str]] = []
@@ -47,6 +55,8 @@ class Server(BaseModel):
     hostname: str 
     webhook_url: Optional[str] = None
     webhook_format: Optional[str] = None
+    webhook_headers: Optional[Dict[str, str]] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class ServerWithApiKey(Server):
@@ -59,6 +69,7 @@ class ServerClaim(BaseModel):
 class ServerUpdate(BaseModel):
     webhook_url: Optional[str] = None
     webhook_format: Optional[str] = None 
+    webhook_headers: Optional[Dict[str, str]] = None
 
 class UserBase(BaseModel):
     email: EmailStr

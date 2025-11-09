@@ -11,7 +11,7 @@ from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredenti
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware  
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc 
 from backend.database import SessionLocal, engine, Base
@@ -120,7 +120,7 @@ def send_email_notification(recipient_email: str, subject: str, body: str):
         print(f"ERROR: Failed to send email via SendGrid to {recipient_email}: {e}")
 
 # Webhook notification function
-def send_webhook_notification(webhook_url: str, webhook_format: str, subject: str, body: str, is_firing: bool):
+def send_webhook_notification(webhook_url: str, webhook_format: str, subject: str, body: str, is_firing: bool, headers: Optional[Dict[str, str]] = None):
     """Sends a notification to a webhook, formatting it based on the specified type."""
     payload = {}
     
@@ -149,8 +149,8 @@ def send_webhook_notification(webhook_url: str, webhook_format: str, subject: st
             }]
         }
 
-    try:
-        response = requests.post(webhook_url, json=payload, timeout=5)
+    try: 
+        response = requests.post(webhook_url, json=payload, headers=headers, timeout=5)
         response.raise_for_status()
         print(f"Webhook notification sent successfully using {webhook_format} format.")
     except requests.exceptions.RequestException as e:
@@ -285,13 +285,93 @@ def create_alert_rule(
     return db_rule
 
 @alerts_router.get("/servers/{server_id}", response_model=List[schemas.AlertRule])
-def get_alert_rules_for_server(server_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)): 
+def get_alert_rules_for_server(
+    server_id: UUID, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+): 
     server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == current_user.id).first()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found or permission denied.")
     
     rules = db.query(models.AlertRule).filter(models.AlertRule.server_id == server_id).all()
     return rules
+
+@alerts_router.get("/events/servers/{server_id}/active_count", response_model=int)
+def get_active_alert_count_for_server(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+): 
+    server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == current_user.id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+ 
+    count = db.query(models.AlertEvent).join(models.AlertEvent.rule).filter(
+        models.AlertRule.server_id == server_id,
+        models.AlertEvent.resolved_at == None
+    ).count()
+    
+    return count
+
+@alerts_router.get("/events/servers/{server_id}", response_model=List[schemas.AlertEventRead])
+def get_alert_events_for_server(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+): 
+    server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == current_user.id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+ 
+    events = db.query(models.AlertEvent).options(
+        joinedload(models.AlertEvent.rule)
+    ).filter(
+        models.AlertEvent.rule.has(server_id=server_id)
+    ).order_by(
+        desc(models.AlertEvent.triggered_at)
+    ).limit(100).all()
+    
+    return events
+
+@alerts_router.put("/events/{event_id}/resolve", response_model=schemas.AlertEventRead)
+def resolve_alert_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+): 
+    event = db.query(models.AlertEvent).join(models.AlertEvent.rule).join(models.AlertRule.server).filter(
+        models.AlertEvent.id == event_id,
+        models.Server.user_id == current_user.id
+    ).first()
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert event not found or you do not have permission to access it."
+        )
+
+    if event.resolved_at: 
+        return event
+
+    event.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(event)
+ 
+    subject = f"ℹ️ Alert Manually Resolved: {event.rule.name}"
+    body = f"The alert '{event.rule.name}' on server '{event.rule.server.hostname}' was manually marked as resolved by {current_user.email}."
+    send_email_notification(current_user.email, subject, body)
+    if event.rule.server.webhook_url:
+        send_webhook_notification(
+            event.rule.server.webhook_url, 
+            event.rule.server.webhook_format, 
+            subject, 
+            body, 
+            is_firing=False, 
+            headers=event.rule.server.webhook_headers
+        )
+
+    return event
 
 @alerts_router.put("/{rule_id}", response_model=schemas.AlertRule)
 def update_alert_rule(
@@ -467,6 +547,22 @@ def update_server_settings(
     db.refresh(server)
     return server
 
+@app.get("/api/v1/servers/{server_id}", response_model=schemas.Server)
+def get_server(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    server = db.query(models.Server).filter(
+        models.Server.id == server_id,
+        models.Server.user_id == current_user.id
+    ).first()
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+
+    return server
+
 @app.get("/api/v1/servers", response_model=List[schemas.Server])
 def get_all_servers(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     servers = db.query(models.Server).filter(models.Server.user_id == current_user.id).order_by(models.Server.hostname).all()
@@ -594,19 +690,20 @@ async def post_metrics(
             "server_id": str(item.server_id),
             "timestamp": item.timestamp.isoformat(),
             "metrics": metrics_json,
+            "processes": metrics_processes_json,
             "meta": item.meta or {},
         })
         
         await manager.broadcast(str(item.server_id), {"type": "metric", "data": data})
 
-    evaluate_alerts_for_server(str(server_uuid), db)
+    evaluate_alerts_for_server(server_uuid.id, db)
 
     db.commit()
     return {"accepted": accepted}
 
 def evaluate_alerts_for_server(server_id: UUID, db: Session):
     server = db.query(models.Server).filter(models.Server.id == server_id).first()
-    if not server or not server.user:
+    if not server or not server.user_id:
         return  # Can't notify if there's no owner
 
     rules = db.query(models.AlertRule).filter(
@@ -629,8 +726,21 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session):
         # Check if the condition is consistently met
         is_violated = True
         for metric_record in recent_metrics:
-            # Find the specific metric value (e.g., cpu usage)
-            metric_value = next((m.get('usage') for m in metric_record.metrics if m.get('type') == rule.metric), None)
+            metric_value = None
+            
+            # --- CORRECTED LOGIC ---
+            if rule.metric == 'cpu':
+                metric_value = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'cpu.percent'), None)
+            elif rule.metric == 'memory':
+                metric_value = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'mem.percent'), None)
+            elif rule.metric == 'disk':
+                # For disk, we find the root ('/') mountpoint and get its usage percent
+                disk_metrics = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'disk'), None)
+                if disk_metrics and isinstance(disk_metrics, list):
+                    root_disk = next((d for d in disk_metrics if d.get('mountpoint') == '/'), None)
+                    if root_disk:
+                        metric_value = root_disk.get('percent')
+
             if metric_value is None:
                 is_violated = False
                 break
@@ -641,7 +751,7 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session):
             if rule.operator == '<' and not (metric_value < rule.threshold):
                 is_violated = False
                 break
-        
+
         # Check if an alert is already active for this rule
         active_event = db.query(models.AlertEvent).filter(
             models.AlertEvent.rule_id == rule.id,
@@ -658,9 +768,9 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session):
             # 2. Send notification
             subject = f"🚨 Alert Firing: {rule.name} on {server.hostname}"
             body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes."
-            send_email_notification(server.user.email, subject, body)
+            send_email_notification(server.owner.email, subject, body)
             if server.webhook_url and server.webhook_format:
-                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True)
+                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True, headers=server.webhook_headers)
 
         elif not is_violated and active_event:
             # --- RESOLVE EXISTING ALERT ---
@@ -671,9 +781,9 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session):
             # 2. Send notification
             subject = f"✅ Alert Resolved: {rule.name} on {server.hostname}"
             body = f"The alert '{rule.name}' has been resolved.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThe system has returned to a normal state."
-            send_email_notification(server.user.email, subject, body)
+            send_email_notification(server.owner.email, subject, body)
             if server.webhook_url and server.webhook_format:
-                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=False)
+                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=False, headers=server.webhook_headers)
 
 # ========== LOGS ==========
 @app.websocket("/api/v1/ws/logs")

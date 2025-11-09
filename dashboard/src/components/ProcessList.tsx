@@ -9,7 +9,7 @@ const ProcessList: React.FC<ProcessListProps> = ({ metricPoint }) => {
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
   if (!latestMetric) {
     return <div className="text-center text-gray-400 p-8">No process data available.</div>;
-  }
+  } 
   const processes = latestMetric.processes || [];
   return (
     <div className="p-4">

@@ -89,20 +89,16 @@ export interface MetricPoint {
     };
   };
 }
-
-// Update the function signature to accept period and interval
+ 
 export function useMetrics(serverId: string, period: string, interval: number, token?: string) {
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
-
-  // Add 'period' to the dependency array
+ 
   useEffect(() => { 
     let active = true;
-    
-    // 1. Fetch historical data based on the selected period
+     
     const fetchHistorical = async () => {
       if (!active) return;
-      try {
-        // Use the new history endpoint
+      try { 
         const url = new URL("http://localhost:8000/api/v1/metrics/history");
         url.searchParams.append("server_id", serverId);
         url.searchParams.append("period", period); // Pass the period
@@ -113,13 +109,12 @@ export function useMetrics(serverId: string, period: string, interval: number, t
 
         if (!res.ok) {
           console.error("Failed to fetch historical metrics:", res.statusText);
-          setMetrics([]); // Clear metrics on failure
+          setMetrics([]); 
           return;
         }
 
         const data = await res.json();  
-        
-        // Normalize DB data into chart format (same logic as before)
+         
         const historical: MetricPoint[] = data.map((item: any) => ({
           timestamp: item.timestamp,
           cpu: item.metrics.find((m: any) => m.name === "cpu.percent")?.value ?? 0,
@@ -159,8 +154,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
     };
 
     fetchHistorical();
-
-    // 2. Set up WebSocket for live updates (logic is mostly unchanged)
+ 
     const params = new URLSearchParams({ server_id: serverId });
     if (token) params.append("token", token);
 
@@ -180,13 +174,14 @@ export function useMetrics(serverId: string, period: string, interval: number, t
           const disk = msg.data.metrics?.find((x: any) => x.name === "disk")?.value ?? [];
           const network = msg.data.metrics?.find((x: any) => x.name === "network")?.value ?? [];
           const serverInfo = msg.data.meta?.server_info;
-
+ 
           const newPoint: MetricPoint = {
             timestamp: msg.data.timestamp,
             cpu,
             memory,
             disk,
             network,
+            processes: msg.data.processes || [],
             serverInfo,
             meta: msg.data.meta, 
             name: msg.data.meta?.formatted?.name || msg.data.meta?.server_info?.hostname,
@@ -199,8 +194,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
             diskPercent: parseFloat(msg.data.meta?.formatted?.disk_percent) || msg.data.meta?.disk_percent || 0,
             diskRead: msg.data.meta?.disk_read_mbps || 0,
             diskWrite: msg.data.meta?.disk_write_mbps || 0,
-            networkIO: msg.data.meta?.formatted?.network_io || msg.data.meta?.network_io,
-            // NEW: Add separate network metrics for WebSocket data
+            networkIO: msg.data.meta?.formatted?.network_io || msg.data.meta?.network_io, 
             networkIn: msg.data.meta?.network_in || 
                       (typeof msg.data.meta?.formatted?.network_in === 'string' ? 
                        parseFloat(msg.data.meta.formatted.network_in) : 0),
