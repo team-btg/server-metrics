@@ -59,14 +59,14 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
   const renderContent = () => {
     switch (tab) {
       case 'dashboard':
-        return <Dashboard metricPoint={metrics} token={token} />;
+        return <Dashboard metricPoint={metrics} />;
       case 'logs':
         return <Logs serverId={serverId} token={token} />;
       case 'processes':
         // Pass the processes from the latest metric to the ProcessList component
         return <ProcessList metricPoint={metrics} />;
       default:
-        return <Dashboard metricPoint={metrics} token={token} />;
+        return <Dashboard metricPoint={metrics} />;
     }
   };
   return (

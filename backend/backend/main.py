@@ -4,8 +4,9 @@ import asyncio
 import os
 from fastapi.responses import RedirectResponse
 import google.generativeai as genai 
+import requests
 
-from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect, Response
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +25,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from passlib.context import CryptContext
 from authlib.integrations.starlette_client import OAuth
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 load_dotenv()
 
@@ -39,6 +42,8 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+SMTP_SENDER_EMAIL = os.getenv("SMTP_SENDER_EMAIL")
 
 oauth = OAuth()
 oauth.register(
@@ -95,7 +100,62 @@ def get_db():
         yield db
     finally:
         db.close()
-        
+
+def send_email_notification(recipient_email: str, subject: str, body: str):
+    if not SENDGRID_API_KEY or not SMTP_SENDER_EMAIL:
+        print("WARNING: SendGrid API Key or Sender Email not configured. Skipping email notification.")
+        return
+
+    message = Mail(
+        from_email=SMTP_SENDER_EMAIL,
+        to_emails=recipient_email,
+        subject=subject,
+        plain_text_content=body
+    )
+    try:
+        sendgrid_client = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sendgrid_client.send(message)
+        print(f"Notification email sent to {recipient_email}, status code: {response.status_code}")
+    except Exception as e:
+        print(f"ERROR: Failed to send email via SendGrid to {recipient_email}: {e}")
+
+# Webhook notification function
+def send_webhook_notification(webhook_url: str, webhook_format: str, subject: str, body: str, is_firing: bool):
+    """Sends a notification to a webhook, formatting it based on the specified type."""
+    payload = {}
+    
+    if webhook_format == 'teams':
+        # Format for Microsoft Teams
+        color = "FF0000" if is_firing else "00FF00" # Red for firing, Green for resolved
+        payload = {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": color,
+            "summary": subject,
+            "sections": [{
+                "activityTitle": subject,
+                "text": body.replace('\n', '\n\n'), # Teams prefers double newlines for paragraphs
+                "markdown": True
+            }]
+        }
+    else: # Default to Slack/Discord format
+        color = 15548997 if is_firing else 3066993
+        payload = {
+            "embeds": [{
+                "title": subject,
+                "description": body,
+                "color": color,
+                "timestamp": datetime.utcnow().isoformat()
+            }]
+        }
+
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=5)
+        response.raise_for_status()
+        print(f"Webhook notification sent successfully using {webhook_format} format.")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: Failed to send webhook notification: {e}")
+ 
 # --- Dependency to get current user ---
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -187,27 +247,105 @@ async def auth_github_callback(request: Request, db: Session = Depends(get_db)):
 
 alerts_router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"], dependencies=[Depends(get_current_user)])
 
-@alerts_router.post("/servers/{server_id}", response_model=schemas.AlertRule)
-def create_alert_rule(server_id: UUID, rule: schemas.AlertRuleCreate, db: Session = Depends(get_db)):
-    # Logic to create a new AlertRule in the DB for the given server_id
-    # Ensure the current user owns this server
-    pass
+@alerts_router.post("/servers/{server_id}", response_model=schemas.AlertRule, status_code=status.HTTP_201_CREATED)
+def create_alert_rule(
+    server_id: UUID, 
+    rule: schemas.AlertRuleCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+): 
+    server = db.query(models.Server).filter(
+        models.Server.id == server_id,
+        models.Server.user_id == current_user.id
+    ).first()
+
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Server not found or you do not have permission to access it."
+        )
+ 
+    existing_rule = db.query(models.AlertRule).filter(
+        models.AlertRule.server_id == server_id,
+        models.AlertRule.name == rule.name
+    ).first()
+
+    if existing_rule:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,  
+            detail=f"An alert rule with the name '{rule.name}' already exists for this server."
+        )
+ 
+    db_rule = models.AlertRule(**rule.model_dump(), server_id=server_id)
+     
+    db.add(db_rule)
+    db.commit()
+    db.refresh(db_rule)
+    
+    return db_rule
 
 @alerts_router.get("/servers/{server_id}", response_model=List[schemas.AlertRule])
-def get_alert_rules_for_server(server_id: UUID, db: Session = Depends(get_db)):
-    # Logic to get all rules for a server
-    # Ensure the current user owns this server
-    pass
+def get_alert_rules_for_server(server_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)): 
+    server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == current_user.id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+    
+    rules = db.query(models.AlertRule).filter(models.AlertRule.server_id == server_id).all()
+    return rules
 
 @alerts_router.put("/{rule_id}", response_model=schemas.AlertRule)
-def update_alert_rule(rule_id: int, rule: schemas.AlertRuleUpdate, db: Session = Depends(get_db)):
-    # Logic to update a rule
-    pass
+def update_alert_rule(
+    rule_id: int, 
+    rule_update: schemas.AlertRuleUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+): 
+    db_rule = db.query(models.AlertRule).filter(models.AlertRule.id == rule_id).first()
+
+    if not db_rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+ 
+    if db_rule.server.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this rule")
+
+    existing_rule = db.query(models.AlertRule).filter( 
+        models.AlertRule.id != rule_id,
+        models.AlertRule.name == rule_update.name
+    ).first()
+
+    if existing_rule:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,  
+            detail=f"An alert rule with the name '{rule_update.name}' already exists for this server."
+        )
+     
+    update_data = rule_update.model_dump(exclude_unset=True)
+     
+    for key, value in update_data.items():
+        setattr(db_rule, key, value)
+        
+    db.commit()
+    db.refresh(db_rule)
+    return db_rule
 
 @alerts_router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_alert_rule(rule_id: int, db: Session = Depends(get_db)):
-    # Logic to delete a rule
-    pass
+def delete_alert_rule(
+    rule_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    db_rule = db.query(models.AlertRule).filter(models.AlertRule.id == rule_id).first()
+
+    if not db_rule: 
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+ 
+    if db_rule.server.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this rule")
+
+    db.delete(db_rule)
+    db.commit()
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 app.include_router(alerts_router) 
 app.include_router(auth_router)
@@ -304,7 +442,31 @@ def claim_server(
     db.refresh(server)
     
     return server
-  
+
+@app.put("/api/v1/servers/{server_id}", response_model=schemas.Server)
+def update_server_settings(
+    server_id: UUID,
+    server_update: schemas.ServerUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    server = db.query(models.Server).filter(
+        models.Server.id == server_id,
+        models.Server.user_id == current_user.id
+    ).first()
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+
+    # Update the server object with the new data
+    update_data = server_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(server, key, value)
+    
+    db.commit()
+    db.refresh(server)
+    return server
+
 @app.get("/api/v1/servers", response_model=List[schemas.Server])
 def get_all_servers(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     servers = db.query(models.Server).filter(models.Server.user_id == current_user.id).order_by(models.Server.hostname).all()
@@ -395,8 +557,7 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
         await manager.disconnect(server_id, websocket)
     finally:
         db.close()
-
-
+ 
 @app.post("/api/v1/metrics")
 async def post_metrics(
     payload: List[schemas.MetricIn],
@@ -407,20 +568,17 @@ async def post_metrics(
     for item in payload: 
         if str(item.server_id) != str(server_uuid.id):
             raise HTTPException(status_code=403, detail="server_id mismatch")
-  
-        # JSON-serializable metrics
+   
         metrics_json = [
             m if isinstance(m, dict) else m.model_dump() if hasattr(m, "model_dump") else m.dict()
             for m in item.metrics
         ]
-
-        # JSON-serializable metrics processes
+ 
         metrics_processes_json = [
             p if isinstance(p, dict) else p.model_dump() if hasattr(p, "model_dump") else p.dict()
             for p in (item.processes or [])
         ]
- 
-
+  
         db_metric = models.Metric(
             server_id=item.server_id,
             timestamp=item.timestamp,
@@ -447,15 +605,75 @@ async def post_metrics(
     return {"accepted": accepted}
 
 def evaluate_alerts_for_server(server_id: UUID, db: Session):
-    # 1. Get all enabled rules for this server.
-    # 2. For each rule:
-    #    a. Fetch recent metrics for the rule's duration (e.g., last 5 minutes).
-    #    b. Check if ALL recent metrics violate the threshold (e.g., all have CPU > 90%).
-    #    c. If they do, check if an alert is already "firing" for this rule.
-    #    d. If not, create a new AlertEvent and send a notification.
-    # 3. For all "firing" alerts, check if the condition is now resolved.
-    #    a. If resolved, update the AlertEvent with `resolved_at` and send a "resolved" notification.
-    pass
+    server = db.query(models.Server).filter(models.Server.id == server_id).first()
+    if not server or not server.user:
+        return  # Can't notify if there's no owner
+
+    rules = db.query(models.AlertRule).filter(
+        models.AlertRule.server_id == server_id,
+        models.AlertRule.is_enabled == True
+    ).all()
+
+    for rule in rules:
+        start_time = datetime.utcnow() - timedelta(minutes=rule.duration_minutes)
+        
+        # Get recent metrics for the rule's duration
+        recent_metrics = db.query(models.Metric).filter(
+            models.Metric.server_id == server_id,
+            models.Metric.timestamp >= start_time
+        ).order_by(desc(models.Metric.timestamp)).all()
+
+        if len(recent_metrics) == 0:
+            continue  
+
+        # Check if the condition is consistently met
+        is_violated = True
+        for metric_record in recent_metrics:
+            # Find the specific metric value (e.g., cpu usage)
+            metric_value = next((m.get('usage') for m in metric_record.metrics if m.get('type') == rule.metric), None)
+            if metric_value is None:
+                is_violated = False
+                break
+            
+            if rule.operator == '>' and not (metric_value > rule.threshold):
+                is_violated = False
+                break
+            if rule.operator == '<' and not (metric_value < rule.threshold):
+                is_violated = False
+                break
+        
+        # Check if an alert is already active for this rule
+        active_event = db.query(models.AlertEvent).filter(
+            models.AlertEvent.rule_id == rule.id,
+            models.AlertEvent.resolved_at == None
+        ).first()
+
+        if is_violated and not active_event:
+            # --- TRIGGER NEW ALERT ---
+            print(f"TRIGGERING alert for rule '{rule.name}' on server '{server.hostname}'")
+            # 1. Create the event in the DB
+            new_event = models.AlertEvent(rule_id=rule.id)
+            db.add(new_event)
+            db.commit()
+            # 2. Send notification
+            subject = f"🚨 Alert Firing: {rule.name} on {server.hostname}"
+            body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes."
+            send_email_notification(server.user.email, subject, body)
+            if server.webhook_url and server.webhook_format:
+                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True)
+
+        elif not is_violated and active_event:
+            # --- RESOLVE EXISTING ALERT ---
+            print(f"RESOLVING alert for rule '{rule.name}' on server '{server.hostname}'")
+            # 1. Update the event in the DB
+            active_event.resolved_at = datetime.utcnow()
+            db.commit()
+            # 2. Send notification
+            subject = f"✅ Alert Resolved: {rule.name} on {server.hostname}"
+            body = f"The alert '{rule.name}' has been resolved.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThe system has returned to a normal state."
+            send_email_notification(server.user.email, subject, body)
+            if server.webhook_url and server.webhook_format:
+                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=False)
 
 # ========== LOGS ==========
 @app.websocket("/api/v1/ws/logs")

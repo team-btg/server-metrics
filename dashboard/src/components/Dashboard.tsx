@@ -18,11 +18,10 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, color }) =>
 );
 
 interface DashboardProps {
-  metricPoint: MetricPoint[];
-  token?: string;
+  metricPoint: MetricPoint[]; 
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, token }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
 
   const [maximizedChart, setMaximizedChart] = useState<string | null>(null);
   const metrics = metricPoint; 

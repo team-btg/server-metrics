@@ -14,6 +14,7 @@ class AlertOperator(str, enum.Enum):
     LESS_THAN = "<"
 
 class AlertRuleBase(BaseModel):
+    name: str
     metric: AlertMetric
     operator: AlertOperator
     threshold: float
@@ -24,6 +25,7 @@ class AlertRuleCreate(AlertRuleBase):
     pass
  
 class AlertRuleUpdate(BaseModel):
+    name: Optional[str] = None
     metric: Optional[AlertMetric] = None
     operator: Optional[AlertOperator] = None
     threshold: Optional[float] = None
@@ -43,6 +45,8 @@ class ServerCreate(BaseModel):
 class Server(BaseModel):
     id: UUID
     hostname: str 
+    webhook_url: Optional[str] = None
+    webhook_format: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class ServerWithApiKey(Server):
@@ -51,6 +55,10 @@ class ServerWithApiKey(Server):
 class ServerClaim(BaseModel):
     server_id: UUID
     api_key: str
+
+class ServerUpdate(BaseModel):
+    webhook_url: Optional[str] = None
+    webhook_format: Optional[str] = None 
 
 class UserBase(BaseModel):
     email: EmailStr

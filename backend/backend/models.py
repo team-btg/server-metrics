@@ -27,8 +27,10 @@ class Server(Base):
     metrics = relationship("Metric", back_populates="server")
 
     user_id = Column(Integer, ForeignKey("users.id"))
-    owner = relationship("User", back_populates="servers")
-    
+    webhook_url = Column(String, nullable=True)
+    webhook_format = Column(String, nullable=True) # e.g., 'slack_discord' or 'teams'
+
+    owner = relationship("User", back_populates="servers") 
     api_keys = relationship("ApiKey", back_populates="server")
 
 class AlertMetric(str, enum.Enum):
@@ -43,6 +45,7 @@ class AlertOperator(str, enum.Enum):
 class AlertRule(Base):
     __tablename__ = "alert_rules"
     id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
     server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
     metric = Column(Enum(AlertMetric), nullable=False)
     operator = Column(Enum(AlertOperator), nullable=False)
