@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart, Server, Settings, X, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { X, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;

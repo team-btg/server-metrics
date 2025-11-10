@@ -15,7 +15,9 @@ import signal
 import random
 import datetime
 import sys
+from dotenv import load_dotenv
 
+load_dotenv()
 # ==============================
 # CONFIG
 # ==============================

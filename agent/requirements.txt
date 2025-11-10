@@ -2,3 +2,4 @@ requests
 psutil
 ecdsa
 pywin32; sys_platform == 'win32'
+python-dotenv

@@ -102,6 +102,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
         const url = new URL(`${import.meta.env.VITE_API_BASE_URL}/api/v1/metrics/history`);
         url.searchParams.append("server_id", serverId);
         url.searchParams.append("period", period); // Pass the period
+        url.searchParams.append("interval", interval.toString());
 
         const res = await fetch(url.toString(), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},

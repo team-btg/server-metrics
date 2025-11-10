@@ -1,0 +1,36 @@
+steps:
+  # 1. Build the Docker container image
+  # This step uses the Dockerfile in your directory.
+  # It passes the production backend URL as a build argument.
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'VITE_API_BASE_URL=${_VITE_API_BASE_URL}'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
+      - '.'
+    id: 'Build'
+
+  # 2. Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
+    id: 'Push'
+
+  # 3. Deploy the new version to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'server-metrics-dashboard' # You can name your service anything you like
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
+      - '--region=us-central1' # Use the same region as your backend for best performance
+      - '--platform=managed'
+      - '--allow-unauthenticated' # This makes your website public
+    id: 'Deploy'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'

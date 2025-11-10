@@ -100,12 +100,12 @@ return (
               Servers
             </h3>
             {servers.map(server => (
-              <button key={server.id} onClick={() => setSelectedServerId(server.id)} className={`w-full flex items-center p-2 space-x-3 rounded-md transition-colors ${selectedServerId === server.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+              <button key={server.id} onClick={() => setSelectedServerId(server.id)} className={`w-full flex items-center p-2 space-x-3 rounded-md transition-colors ${selectedServerId === server.id ? 'bg-blue-600 text-white' : 'text-gray-300 bg-gray-700'}`}>
                 <Server size={20} />
                 {!isSidebarMinimized && <span>{server.hostname}</span>}
               </button>
             ))}
-            <button onClick={() => setIsClaiming(true)} className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 bg-gray-700 transition-colors`}>
+            <button onClick={() => setIsClaiming(true)} className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 bg-green-900 transition-colors`}>
               <PlusCircle size={20} />
               {!isSidebarMinimized && <span>Add Server</span>}
             </button>

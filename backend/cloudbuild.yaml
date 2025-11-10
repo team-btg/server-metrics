@@ -1,47 +1,63 @@
+substitutions:
+  _IMAGE_NAME: "backend" 
+
 steps:
-  # 1. Build the Docker container image, tagged with the unique BUILD_ID
+  # 1️⃣ Build the Docker container image
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build'
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/${_IMAGE_NAME}:$BUILD_ID'
       - '.'
-    id: 'Build'
 
-  # 2. Push the container image to Artifact Registry
+  # 2️⃣ Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push'
     args:
       - 'push'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
-    id: 'Push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/${_IMAGE_NAME}:$BUILD_ID'
 
-  # 3. Run Alembic database migrations using the newly built image
-  - name: 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
-    entrypoint: 'alembic'
-    args: ['upgrade', 'head']
+  # 3️⃣ Run Alembic migrations using DATABASE_URL secret
+  - name: "gcr.io/google-appengine/exec-wrapper"
     id: 'Migrate DB'
-    env:
-      - 'DB_CONNECTION_NAME=${_DB_CONNECTION_NAME}'
-      - 'DB_USER=${_DB_USER}'
-      - 'DB_NAME=${_DB_NAME}'
-      - 'DB_PASS=${_DB_PASS}'
+    entrypoint: 'bash'
+    args:
+      - "-c"
+      - |
+        /buildstep/execute.sh \
+        -i us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/${_IMAGE_NAME}:$BUILD_ID \
+        -s $$CONNECTION_NAME -e DATABASE_URL=$$DATABASE_URL \
+        -- alembic upgrade head
+    secretEnv: ['DATABASE_URL', 'CONNECTION_NAME']
 
-  # 4. Deploy the new version to Cloud Run
+  # 4️⃣ Deploy the container to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'server-metrics-backend' # Your Cloud Run service name
-      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
-      - '--region=us-central1' # The region for your Cloud Run service
+      - '${_IMAGE_NAME}'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/${_IMAGE_NAME}:$BUILD_ID'
+      - '--region=us-central1'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      - '--set-env-vars=DB_CONNECTION_NAME=${_DB_CONNECTION_NAME},DB_USER=${_DB_USER},DB_NAME=${_DB_NAME}'
-      - '--add-cloudsql-instances=${_DB_CONNECTION_NAME}'
-      - '--update-secrets=DB_PASS=${_DB_SECRET_NAME}:latest,SECRET_KEY=${_JWT_SECRET_NAME}:latest'
-    id: 'Deploy'
+      - '--set-env-vars=DATABASE_URL=$$DATABASE_URL'
+    secretEnv: ['DATABASE_URL']
 
-# Also update the image name here for good measure
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/${_IMAGE_NAME}:$BUILD_ID'
+
+# -----------------------------
+# Secret Manager configuration
+# -----------------------------
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/DATABASE_URL/versions/latest
+      env: 'DATABASE_URL'
+    - versionName: projects/$PROJECT_ID/secrets/CONNECTION_NAME/versions/latest
+      env: 'CONNECTION_NAME'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

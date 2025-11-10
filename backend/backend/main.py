@@ -15,7 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc 
-from backend.database import SessionLocal, engine, Base, get_db
+from backend.database import SessionLocal, engine, Base, get_db, initialize_database
 from backend import models, schemas 
 from backend.security import create_access_token, verify_access_token, decode_jwt
 from uuid import UUID
@@ -28,6 +28,7 @@ from passlib.context import CryptContext
 from authlib.integrations.starlette_client import OAuth
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
+from contextlib import asynccontextmanager
 
 load_dotenv()
 
@@ -69,7 +70,13 @@ oauth.register(
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_database()
+    yield
+    print("Shutting down...")
+
+app = FastAPI(lifespan=lifespan)
 
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
 if not SESSION_SECRET_KEY:
@@ -80,6 +87,7 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 origins = [
     "http://localhost:5173",  # Vite dev server
     "http://localhost:3000",  # React dev server
+    "https://server-metrics-dashboard-1090247220176.us-central1.run.app",  # Deployed frontend URL
     # Add any other frontend URLs if needed
 ]
 

@@ -1,36 +1,26 @@
-# --- Builder Stage ---
-# Use a slim Python image to build dependencies
-FROM python:3.11-slim as builder
-
-WORKDIR /app
-
-# Install build-time dependencies if any
-# For example, if you need gcc for some packages
-# RUN apt-get update && apt-get install -y build-essential
-
-# Copy only the requirements file to leverage Docker's cache
-COPY requirements.txt .
-
-# Install dependencies into a temporary location
-RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.txt
-
-
-# --- Final Stage ---
-# Use a fresh slim image for the final container to keep it small
+# 1️⃣ Use official Python base image
 FROM python:3.11-slim
 
+# 2️⃣ Set working directory
 WORKDIR /app
 
-# Copy the pre-built wheels from the builder stage
-COPY --from=builder /app/wheels /wheels
+# 3️⃣ Install system dependencies needed for Postgres / Cloud SQL
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install the dependencies from the local wheels
-RUN pip install --no-cache /wheels/*
+# 4️⃣ Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your application code
-COPY ./alembic ./alembic
-COPY ./backend ./backend
-COPY alembic.ini .
- 
-# This is required by Cloud Run, which provides the $PORT environment variable. 
-CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8080", "backend.main:app"]
+# 5️⃣ Copy the application code
+COPY . .
+
+# 6️⃣ Expose port for Cloud Run
+EXPOSE 8080
+
+# 7️⃣ Default entrypoint (your web server)
+# Use the "shell form" of CMD so that the $PORT environment variable is processed.
+CMD uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers
