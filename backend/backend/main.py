@@ -1,10 +1,10 @@
 import secrets
 import hashlib
 import asyncio
-import os
-from fastapi.responses import RedirectResponse
+import os 
 import google.generativeai as genai 
 import requests
+import json
 
 from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect, Response
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -29,12 +29,17 @@ from authlib.integrations.starlette_client import OAuth
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from contextlib import asynccontextmanager
+from google.cloud import pubsub_v1
+from fastapi.responses import RedirectResponse
 
 load_dotenv()
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
+TOPIC_ID = "metrics-broadcast"
 
-# Base.metadata.create_all(bind=engine)
+publisher = pubsub_v1.PublisherClient()
+topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
 
 # --- Security & Auth Setup ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -642,39 +647,61 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
         return
 
-    db = SessionLocal()
+    db_generator = get_db()
+    db = next(db_generator)
+    
     try:
         payload = decode_jwt(token)
-        email: str = payload.get("sub")
-        if not email:
-            raise Exception("No email in token")
-
-        user = db.query(models.User).filter(models.User.email == email).first()
-        if not user:
-            raise Exception("User not found")
-
-        # Verify the server belongs to the user
-        server = db.query(models.Server).filter(
-            models.Server.id == server_id,
-            models.Server.user_id == user.id
-        ).first()
-
-        if not server:
-            raise Exception("Server not found or access denied")
-
+        user = db.query(models.User).filter(models.User.email == payload.get("sub")).first()
+        server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == user.id).first()
+        if not user or not server:
+            raise Exception("Authentication failed")
     except Exception as e:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Authentication failed: {e}")
         db.close()
         return
     
-    # If authentication is successful, connect the user
-    await manager.connect(server_id, websocket)
+    # If authentication is successful, accept the connection
+    await websocket.accept()
+
+    # --- NEW PUBSUB LISTENER ---
+    subscriber = pubsub_v1.SubscriberClient()
+    # Create a unique, temporary subscription for this specific websocket connection
+    subscription_name = f"ws-metrics-sub-{secrets.token_hex(8)}"
+    subscription_path = subscriber.subscription_path(PROJECT_ID, subscription_name)
+    
+    # The subscription will be automatically deleted after 1 day of inactivity
+    subscriber.create_subscription(
+        request={"name": subscription_path, "topic": topic_path, "expiration_policy": {"ttl": "86400s"}}
+    )
+
+    # This inner function will run every time a message is received from Pub/Sub
+    async def message_callback(message: pubsub_v1.subscriber.message.Message):
+        try:
+            # Check if the message is for the server this websocket is watching
+            if message.attributes.get("server_id") == server_id:
+                data = json.loads(message.data.decode("utf-8"))
+                await websocket.send_json(data)
+            message.ack()
+        except Exception as e:
+            print(f"Error processing pubsub message: {e}")
+            message.nack()
+
+    # Start listening for messages in the background
+    streaming_pull_future = subscriber.subscribe(subscription_path, callback=message_callback)
+    print(f"WebSocket for server {server_id} is now listening for Pub/Sub messages on {subscription_name}.")
+    
     try:
+        # Keep the connection alive by waiting for the client to disconnect
         while True:
-            await asyncio.sleep(1)  # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        await manager.disconnect(server_id, websocket)
+        print(f"WebSocket for server {server_id} disconnected.")
     finally:
+        # Clean up when the websocket closes
+        streaming_pull_future.cancel()  # Stop the background listener
+        subscriber.delete_subscription(request={"subscription": subscription_path}) # Delete the temporary subscription
+        subscriber.close()
         db.close()
  
 @app.post("/api/v1/metrics")
@@ -709,15 +736,22 @@ async def post_metrics(
         accepted += 1
 
         # Broadcast to WS
-        data = jsonable_encoder({
-            "server_id": str(item.server_id),
-            "timestamp": item.timestamp.isoformat(),
-            "metrics": metrics_json,
-            "processes": metrics_processes_json,
-            "meta": item.meta or {},
-        })
+        data_to_publish = {
+            "type": "metric",
+            "data": jsonable_encoder({
+                "server_id": str(item.server_id),
+                "timestamp": item.timestamp.isoformat(),
+                "metrics": metrics_json,
+                "processes": metrics_processes_json,
+                "meta": item.meta or {},
+            })
+        }
         
-        await manager.broadcast(str(item.server_id), {"type": "metric", "data": data})
+        publisher.publish(
+            topic_path, 
+            data=json.dumps(data_to_publish).encode("utf-8"),
+            server_id=str(item.server_id) # Attribute for filtering
+        )
 
     evaluate_alerts_for_server(server_uuid.id, db)
 
