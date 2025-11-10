@@ -1,0 +1,47 @@
+steps:
+  # 1. Build the Docker container image, tagged with the unique BUILD_ID
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
+      - '.'
+    id: 'Build'
+
+  # 2. Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
+    id: 'Push'
+
+  # 3. Run Alembic database migrations using the newly built image
+  - name: 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
+    entrypoint: 'alembic'
+    args: ['upgrade', 'head']
+    id: 'Migrate DB'
+    env:
+      - 'DB_CONNECTION_NAME=${_DB_CONNECTION_NAME}'
+      - 'DB_USER=${_DB_USER}'
+      - 'DB_NAME=${_DB_NAME}'
+      - 'DB_PASS=${_DB_PASS}'
+
+  # 4. Deploy the new version to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'server-metrics-backend' # Your Cloud Run service name
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'
+      - '--region=us-central1' # The region for your Cloud Run service
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=DB_CONNECTION_NAME=${_DB_CONNECTION_NAME},DB_USER=${_DB_USER},DB_NAME=${_DB_NAME}'
+      - '--add-cloudsql-instances=${_DB_CONNECTION_NAME}'
+      - '--update-secrets=DB_PASS=${_DB_SECRET_NAME}:latest,SECRET_KEY=${_JWT_SECRET_NAME}:latest'
+    id: 'Deploy'
+
+# Also update the image name here for good measure
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/backend:$BUILD_ID'

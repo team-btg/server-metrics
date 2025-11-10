@@ -15,7 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc 
-from backend.database import SessionLocal, engine, Base
+from backend.database import SessionLocal, engine, Base, get_db
 from backend import models, schemas 
 from backend.security import create_access_token, verify_access_token, decode_jwt
 from uuid import UUID
@@ -33,7 +33,7 @@ load_dotenv()
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 # --- Security & Auth Setup ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -93,15 +93,7 @@ app.add_middleware(
 
 auth_scheme = HTTPBearer(auto_error=True)
 manager = ConnectionManager()
-
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
+  
 def send_email_notification(recipient_email: str, subject: str, body: str):
     if not SENDGRID_API_KEY or not SMTP_SENDER_EMAIL:
         print("WARNING: SendGrid API Key or Sender Email not configured. Skipping email notification.")
