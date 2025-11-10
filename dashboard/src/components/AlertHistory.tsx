@@ -23,7 +23,7 @@ interface AlertHistoryProps {
 }
 
 const fetchAlertEvents = async (serverId: string, token: string): Promise<AlertEvent[]> => {
-  const response = await fetch(`http://localhost:8000/api/v1/alerts/events/servers/${serverId}`, {
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/events/servers/${serverId}`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!response.ok) {
@@ -43,7 +43,7 @@ const AlertHistory: React.FC<AlertHistoryProps> = ({ serverId, token }) => {
 
   const resolveMutation = useMutation({
     mutationFn: (eventId: number) => {
-      return fetch(`http://localhost:8000/api/v1/alerts/events/${eventId}/resolve`, {
+      return fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/events/${eventId}/resolve`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` },
       });

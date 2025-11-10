@@ -18,8 +18,8 @@ export default function Card({ title, value, unit = '%' }: CardProps) {
   const pathColor = getColor(value);
 
   return (
-    <div className="p-4 flex flex-col items-center justify-center gap-2 aspect-square size-32">
-      <div style={{ width: '60%' }}>
+    <div className="p-4 flex flex-col items-center justify-center gap-2 aspect-square size-44">
+      <div style={{ width: '80%' }}>
         <CircularProgressbar
           value={value}
           text={`${Math.round(value)}${unit}`}

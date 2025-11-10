@@ -49,7 +49,7 @@ export default function ChatPopup({ latestMetric, token }: ChatPopupProps) {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/chat/diagnose', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/chat/diagnose`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

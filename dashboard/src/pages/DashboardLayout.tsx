@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar';
 import SettingsModal from '../components/SettingsModal'; // Import the new modal
 import { Server, PlusCircle, X, LogOut, Settings } from 'lucide-react'; // Add Settings icon
 import { useAuth } from "../context/AuthContext";
+import AppFooter from '../components/Footer'; // Import the new footer
 
 interface ServerInfo {
   id: string;
@@ -27,7 +28,7 @@ const DashboardLayout: React.FC = () => {
 
   useEffect(() => {
     if (token) {
-      fetch('http://localhost:8000/api/v1/servers', {
+      fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -61,7 +62,7 @@ const DashboardLayout: React.FC = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/servers/claim', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ server_id: claimServerId, api_key: claimApiKey }),
@@ -145,6 +146,7 @@ return (
             </div>
           </div>
         )}
+        <AppFooter />
       </main>
 
       {/* Modals are now rendered here */}

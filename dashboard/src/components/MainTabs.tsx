@@ -17,7 +17,7 @@ interface MainTabsProps {
 }
 
 const fetchActiveAlertCount = async (serverId: string, token: string): Promise<number> => {
-  const response = await fetch(`http://localhost:8000/api/v1/alerts/events/servers/${serverId}/active_count`, {
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/events/servers/${serverId}/active_count`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!response.ok) {

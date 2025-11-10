@@ -79,6 +79,7 @@ class UserCreate(UserBase):
 
 class User(UserBase):
     id: int 
+    is_active: bool
     servers: List[Server] = []
     model_config = ConfigDict(from_attributes=True)
 

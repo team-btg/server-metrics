@@ -4,24 +4,22 @@ import { useAuth } from '../context/AuthContext';
 
 const LoginCallbackPage: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { login } = useAuth();
+  const navigate = useNavigate(); 
+  const { setToken } = useAuth();
 
   useEffect(() => {
     const token = searchParams.get('token');
 
     if (token) {
-      // Use the login function from your AuthContext to save the token
-      login(token);
+      // Use setToken to save the token from the URL
+      setToken(token);
       // Redirect to the main dashboard page
       navigate('/', { replace: true });
-    } else {
-      // If no token is found, redirect to the login page
+    } else { 
       console.error("OAuth callback is missing a token.");
       navigate('/login', { replace: true });
-    }
-    // The empty dependency array ensures this runs only once on mount
-  }, []);
+    } 
+  }, [searchParams, navigate, setToken]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0f172a]">

@@ -16,7 +16,7 @@ export function useLogs(serverId: string, token?: string) {
     let active = true;
     const fetchRecent = async () => {
       try {
-        const url = new URL("http://localhost:8000/api/v1/logs/recent");
+        const url = new URL(`${import.meta.env.VITE_API_BASE_URL}/api/v1/logs/recent`);
         url.searchParams.append("server_id", serverId);
 
         const res = await fetch(url.toString(), {
@@ -50,7 +50,7 @@ export function useLogs(serverId: string, token?: string) {
     const params = new URLSearchParams({ server_id: serverId });
     if (token) params.append("token", token);
 
-    const wsUrl = new URL(`/api/v1/ws/logs?${params.toString()}`, window.location.origin.replace(/^http/, "ws"));
+    const wsUrl = new URL(`/api/v1/ws/logs?${params.toString()}`, import.meta.env.VITE_API_BASE_URL.replace(/^http/, "ws"));
 
     const ws = new WebSocket(wsUrl.toString());
 

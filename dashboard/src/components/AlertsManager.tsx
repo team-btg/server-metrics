@@ -30,7 +30,7 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ serverId, token }) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/alerts/servers/${serverId}`, {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/servers/${serverId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!response.ok) throw new Error('Failed to fetch rules.');
@@ -68,7 +68,7 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ serverId, token }) => {
       return;
     }
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/alerts/${ruleId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/${ruleId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -167,7 +167,7 @@ const RuleFormModal: React.FC<RuleFormModalProps> = ({ serverId, token, existing
     setSubmitError(null);
 
     const ruleData = { name, metric, operator, threshold, duration_minutes: duration, is_enabled: isEnabled };
-    const url = isEditing ? `http://localhost:8000/api/v1/alerts/${existingRule.id}` : `http://localhost:8000/api/v1/alerts/servers/${serverId}`;
+    const url = isEditing ? `${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/${existingRule.id}` : `${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/servers/${serverId}`;
     const method = isEditing ? 'PUT' : 'POST';
 
     try {

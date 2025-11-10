@@ -99,7 +99,7 @@ export function useMetrics(serverId: string, period: string, interval: number, t
     const fetchHistorical = async () => {
       if (!active) return;
       try { 
-        const url = new URL("http://localhost:8000/api/v1/metrics/history");
+        const url = new URL(`${import.meta.env.VITE_API_BASE_URL}/api/v1/metrics/history`);
         url.searchParams.append("server_id", serverId);
         url.searchParams.append("period", period); // Pass the period
 
@@ -158,12 +158,9 @@ export function useMetrics(serverId: string, period: string, interval: number, t
     const params = new URLSearchParams({ server_id: serverId });
     if (token) params.append("token", token);
 
-    const ws = new WebSocket(`ws://localhost:8000/api/v1/ws/metrics?${params.toString()}`);
-
-    ws.onopen = () => {
-      console.log("[WS] Connected to metrics stream");
-    };
-
+    const wsUrl = new URL(`/api/v1/ws/metrics?${params.toString()}`, import.meta.env.VITE_API_BASE_URL.replace(/^http/, "ws"));
+    const ws = new WebSocket(wsUrl.toString());
+ 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);

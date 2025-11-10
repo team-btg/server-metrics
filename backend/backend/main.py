@@ -8,6 +8,7 @@ import requests
 
 from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect, Response
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from . import crud, security
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware  
@@ -30,7 +31,7 @@ from sendgrid.helpers.mail import Mail
 
 load_dotenv()
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 Base.metadata.create_all(bind=engine)
 
@@ -179,16 +180,35 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 # --- New Auth Router ---
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
-@auth_router.post("/register")
-def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # ... (logic to check if user exists, hash password, save to DB) ...
-    pass
+@auth_router.post("/signup", response_model=schemas.User)
+def signup(user: schemas.UserCreate, db: Session = Depends(get_db)): 
+    db_user = crud.get_user_by_email(db, email=user.email) 
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+     
+    hashed_password = security.get_password_hash(user.password)
+    
+    db_user = models.User(email=user.email, hashed_password=hashed_password, provider="local", is_active=True)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
-@auth_router.post("/login")
+@auth_router.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # ... (logic to verify user/password, create and return JWT) ...
-    pass
-
+    user = crud.get_user_by_email(db, email=form_data.username)
+    if not user or not user.hashed_password or not security.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+        
+    access_token = security.create_access_token(subject=user.email)
+    return {"access_token": access_token, "token_type": "bearer"}
+  
 @auth_router.get('/google')
 async def login_google(request: Request):
     redirect_uri = request.url_for('auth_google_callback')
@@ -564,7 +584,10 @@ def get_server(
     return server
 
 @app.get("/api/v1/servers", response_model=List[schemas.Server])
-def get_all_servers(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_all_servers(
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
     servers = db.query(models.Server).filter(models.Server.user_id == current_user.id).order_by(models.Server.hostname).all()
     return servers
 

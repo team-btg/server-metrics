@@ -36,15 +36,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
         <div className="flex justify-center">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4"> 
             {/* Card for CPU Usage */}
-            <div className="bg-[#1e293b] rounded-2xl size-32 shadow-lg">
+            <div className="bg-[#1e293b] rounded-2xl size-44 shadow-lg">
               <Card title="CPU Usage" value={latestMetric ? parseFloat(latestMetric.cpu.toFixed(1)) : 0} unit="%" />
             </div> 
             {/* Card for Memory Usage */}
-            <div className="bg-[#1e293b] rounded-2xl size-32 shadow-lg">
+            <div className="bg-[#1e293b] rounded-2xl size-44 shadow-lg">
               <Card title="Memory Usage" value={latestMetric ? parseFloat(latestMetric.memory.toFixed(1)) : 0} unit="%" />
             </div> 
             {/* Card for Disk Usage */}
-            <div className="bg-[#1e293b] rounded-2xl size-32 shadow-lg">
+            <div className="bg-[#1e293b] rounded-2xl size-44 shadow-lg">
               <Card title="Disk Usage" value={latestMetric ? parseFloat(latestMetric.diskPercent.toFixed(1)) : 0} unit="%" />
             </div> 
           </div>

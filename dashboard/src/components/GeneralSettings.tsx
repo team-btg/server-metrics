@@ -17,7 +17,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ serverId, token }) =>
     const fetchServer = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/servers/${serverId}`, {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers/${serverId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -36,7 +36,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ serverId, token }) =>
     setIsSaving(true);
     setSaveMessage('');
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/servers/${serverId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers/${serverId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

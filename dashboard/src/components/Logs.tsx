@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -17,7 +17,7 @@ interface LogsProps {
 }
 
 const fetchLogs = async (serverId: string, token: string): Promise<LogEntry[]> => {
-  const response = await fetch(`http://localhost:8000/api/v1/logs/${serverId}`, {
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/logs/${serverId}`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!response.ok) {

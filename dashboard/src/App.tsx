@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 import DashboardLayout from './pages/DashboardLayout';
 import LoginCallbackPage from './pages/LoginCallbackPage';  
 
@@ -16,7 +17,8 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <Routes>
         <Route path="/login" element={!token ? <LoginPage /> : <Navigate to="/" />} /> 
-        <Route path="/login/callback" element={<LoginCallbackPage />} /> 
+        <Route path="/login/callback" element={<LoginCallbackPage />} />
+        <Route path="/signup" element={<SignupPage />} /> {/* <-- Add Signup Route */} 
         <Route path="/*" element={token ? <DashboardLayout /> : <Navigate to="/login" />} />
       </Routes>
     </QueryClientProvider>

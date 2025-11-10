@@ -1,5 +1,4 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
 import type { MetricPoint } from '../hooks/useMetrics';
 
 // Define interfaces for process data
@@ -13,20 +12,6 @@ interface Process {
 interface ProcessListProps {
   metricPoint: MetricPoint[];
 }
-
-// Fetch the latest metric data which contains the process list
-const fetchLatestMetric = async (serverId: string, token: string) => {
-  const response = await fetch(`http://localhost:8000/api/v1/metrics/${serverId}?limit=1`, {
-    headers: { 'Authorization': `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch process data');
-  }
-  const data = await response.json();
-  // The API returns an array, we only need the first (and only) item
-  return data.length > 0 ? data[0] : null;
-};
-
 
 const ProcessList: React.FC<ProcessListProps> = ({ metricPoint }) => {  
   const metrics = metricPoint;  
