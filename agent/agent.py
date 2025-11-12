@@ -14,24 +14,19 @@ import threading
 import signal
 import random
 import datetime
-import sys
-from dotenv import load_dotenv
-
-load_dotenv()
+import sys 
+ 
 # ==============================
 # CONFIG
 # ==============================
 AGENT_DIR = Path.home() / ".monitor_agent"
+CONFIG_FILE = AGENT_DIR / "config.json" 
 KEY_FILE = AGENT_DIR / "agent_private.pem"
 META_FILE = AGENT_DIR / "agent_meta.json"
-LOG_STATE_FILE = AGENT_DIR / "log_state.json"
-BACKEND_URL = os.getenv("API_URL", "http://localhost:8000/api/v1")   # configurable
+LOG_STATE_FILE = AGENT_DIR / "log_state.json" 
 SAMPLE_INTERVAL = 10   # seconds
 BATCH_INTERVAL = 30    # seconds
-MAX_RETRIES = 5
-# New: bounded batch size and TLS verify toggle
-MAX_BATCH_SIZE = int(os.getenv("MAX_BATCH_SIZE", "500"))
-VERIFY_SSL = os.getenv("VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no")
+MAX_RETRIES = 5 
 SESSION = requests.Session()
 
 last_net_io = psutil.net_io_counters()
@@ -42,6 +37,65 @@ last_disk_time = time.time()
 # ==============================
 # UTILITIES
 # ==============================  
+def load_or_create_config():
+    """Loads config from file, or prompts user to create it if it doesn't exist."""
+    AGENT_DIR.mkdir(parents=True, exist_ok=True)
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    else:
+        print("--- Server-Metrics Agent First-Time Setup ---")
+        print(f"Configuration will be saved to: {CONFIG_FILE}")
+        print("You can edit this file manually later if you need to change these settings.")
+        print("-" * 50)
+
+        # Prompt for Backend URL with validation
+        while True:
+            url = input("Enter your Backend URL (e.g., http://your-server.com/api/v1): ").strip()
+            if url.startswith("http://") or url.startswith("https://"):
+                break
+            print("[ERROR] Invalid URL. Please ensure it starts with 'http://' or 'https://'.")
+        
+        # Prompt for Max Batch Size with validation
+        while True:
+            size_str = input("Enter max batch size for metrics [Default: 500]: ").strip()
+            if not size_str:
+                size = 500
+                break
+            try:
+                size = int(size_str)
+                if size > 0:
+                    break
+                print("[ERROR] Batch size must be a positive number.")
+            except ValueError:
+                print("[ERROR] Please enter a valid number.")
+
+        # Prompt for SSL Verification with validation
+        while True:
+            ssl_str = input("Verify SSL certificate? (yes/no) [Default: yes]: ").strip().lower()
+            if not ssl_str or ssl_str in ['y', 'yes']:
+                verify = True
+                break
+            if ssl_str in ['n', 'no']:
+                verify = False
+                break
+            print("[ERROR] Please answer with 'yes' or 'no'.")
+
+        config = {
+            "BACKEND_URL": url,
+            "MAX_BATCH_SIZE": size,
+            "VERIFY_SSL": verify
+        }
+        
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+            
+        print("-" * 50)
+        print("Configuration saved successfully. The agent will now start.")
+        print("-" * 50)
+        time.sleep(2)
+        return config
+
 def exponential_backoff(attempt):
     # Add small jitter to avoid thundering herd
     base = min(60, 2 ** attempt)
@@ -50,7 +104,7 @@ def exponential_backoff(attempt):
 # ==============================
 # REGISTRATION
 # ==============================
-def load_or_register_agent():
+def load_or_register_agent(BACKEND_URL):
     AGENT_DIR.mkdir(exist_ok=True)
     if META_FILE.exists():
         with open(META_FILE, "r") as f:
@@ -272,7 +326,7 @@ def collect_metrics(server_id):
 # ==============================
 # METRICS PUSH
 # ==============================
-def push_batch(batch, api_key):
+def push_batch(batch, api_key, BACKEND_URL, VERIFY_SSL):
     if not batch:
         return True, False
     url = f"{BACKEND_URL}/metrics"
@@ -300,7 +354,7 @@ def push_batch(batch, api_key):
 # ==============================
 # LOGS COLLECTION
 # ==============================
-def push_logs(batch, api_key):
+def push_logs(batch, api_key, BACKEND_URL, VERIFY_SSL):
     if not batch:
         return True, False
     url = f"{BACKEND_URL}/logs"
@@ -325,7 +379,7 @@ def push_logs(batch, api_key):
         time.sleep(exponential_backoff(attempt))
     return False, False
 
-def logs_worker(server_id, token, stop_event):
+def logs_worker(server_id, token, stop_event, BACKEND_URL, VERIFY_SSL):
     batch = []
     last_push = time.time()
 
@@ -338,9 +392,9 @@ def logs_worker(server_id, token, stop_event):
         # Flush periodically
         time_to_push = (time.time() - last_push) >= 10 or len(batch) >= 50
         if time_to_push and batch:
-            ok, unauthorized = push_logs(batch, token)
+            ok, unauthorized = push_logs(batch, token, BACKEND_URL, VERIFY_SSL)
             if unauthorized: 
-                ok, _ = push_logs(batch, token)
+                ok, _ = push_logs(batch, token, BACKEND_URL, VERIFY_SSL)
             if ok:
                 batch.clear()
                 last_push = time.time()
@@ -472,7 +526,16 @@ def collect_logs(server_id, limit=50):
 # MAIN LOOP
 # ==============================
 def main(): 
-    server_id, api_key = load_or_register_agent()
+    config = load_or_create_config()
+    BACKEND_URL = config.get("BACKEND_URL")
+    MAX_BATCH_SIZE = config.get("MAX_BATCH_SIZE", 500)
+    VERIFY_SSL = config.get("VERIFY_SSL", True)
+
+    if not BACKEND_URL:
+        print("[FATAL] BACKEND_URL not found in config. Please delete the config file and restart the agent.")
+        sys.exit(1)
+
+    server_id, api_key = load_or_register_agent(BACKEND_URL)
     if not api_key:
         return
  
@@ -492,7 +555,7 @@ def main():
 
     print(f"[INFO] Agent started for {server_id}")
 
-    log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event), daemon=True)
+    log_thread = threading.Thread(target=logs_worker, args=(server_id, api_key, stop_event, BACKEND_URL, VERIFY_SSL), daemon=True)
     log_thread.start()
     
     try:
@@ -503,10 +566,10 @@ def main():
             time_to_push = (time.time() - last_push) >= BATCH_INTERVAL
             size_to_push = len(batch) >= MAX_BATCH_SIZE
             if time_to_push or size_to_push:
-                ok, unauthorized = push_batch(batch, api_key)
+                ok, unauthorized = push_batch(batch, api_key, BACKEND_URL, VERIFY_SSL)
                 if unauthorized:
                     # Refresh token then retry once 
-                    ok, _ = push_batch(batch, api_key)
+                    ok, _ = push_batch(batch, api_key, BACKEND_URL, VERIFY_SSL)
                 if ok:
                     batch.clear()
                     last_push = time.time()
@@ -517,10 +580,10 @@ def main():
         # Final flush on shutdown
         if batch:
             print("[INFO] Flushing remaining samples...")
-            ok, unauthorized = push_batch(batch, api_key)
+            ok, unauthorized = push_batch(batch, api_key, BACKEND_URL, VERIFY_SSL)
             if not ok and unauthorized:
                 try: 
-                    push_batch(batch, api_key)
+                    push_batch(batch, api_key, BACKEND_URL, VERIFY_SSL)
                 except Exception as e:
                     print(f"[ERR] Final flush failed: {e}")
         try:
