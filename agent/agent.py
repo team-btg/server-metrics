@@ -19,7 +19,13 @@ import sys
 # ==============================
 # CONFIG
 # ==============================
-AGENT_DIR = Path.home() / ".monitor_agent"
+if platform.system() == "Windows":
+    # Use C:\ProgramData - the standard location for shared app data
+    AGENT_DIR = Path(os.environ.get("PROGRAMDATA", "C:/")) / "ServerMetricsAgent"
+else:
+    # For Linux/macOS, /etc/ is a standard location for system-wide config
+    AGENT_DIR = Path("/etc/server-metrics-agent")
+
 CONFIG_FILE = AGENT_DIR / "config.json" 
 KEY_FILE = AGENT_DIR / "agent_private.pem"
 META_FILE = AGENT_DIR / "agent_meta.json"
@@ -526,6 +532,14 @@ def collect_logs(server_id, limit=50):
 # MAIN LOOP
 # ==============================
 def main(): 
+
+    if "--configure" in sys.argv:
+        print("Running in configuration mode...")
+        load_or_create_config()
+        print("Configuration complete. You can now install the service.")
+        time.sleep(3)
+        return # Exit after configuring
+    
     config = load_or_create_config()
     BACKEND_URL = config.get("BACKEND_URL")
     MAX_BATCH_SIZE = config.get("MAX_BATCH_SIZE", 500)

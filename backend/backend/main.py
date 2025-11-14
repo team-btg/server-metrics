@@ -12,6 +12,7 @@ from . import crud, security
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware  
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc 
@@ -82,6 +83,8 @@ async def lifespan(app: FastAPI):
     print("Shutting down...")
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
 if not SESSION_SECRET_KEY:
@@ -531,7 +534,8 @@ def agent_register(server_create: schemas.ServerCreate, db: Session = Depends(ge
 
     return {"id": new_server.id, "hostname": new_server.hostname, "api_key": api_key_plain}
 
-@app.post("/api/v1/servers/claim", response_model=schemas.Server)
+server_router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
+@server_router.post("/claim", response_model=schemas.Server)
 def claim_server(
     claim_request: schemas.ServerClaim, 
     db: Session = Depends(get_db),
@@ -548,7 +552,7 @@ def claim_server(
     
     return server
 
-@app.put("/api/v1/servers/{server_id}", response_model=schemas.Server)
+@server_router.put("/{server_id}", response_model=schemas.Server)
 def update_server_settings(
     server_id: UUID,
     server_update: schemas.ServerUpdate,
@@ -572,12 +576,16 @@ def update_server_settings(
     db.refresh(server)
     return server
 
-@app.get("/api/v1/servers/{server_id}", response_model=schemas.Server)
+@server_router.get("/{server_id}", response_model=schemas.Server)
 def get_server(
     server_id: UUID,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    """ 
+    Get server details by ID. 
+    Only the server owner can access this information.
+    """
     server = db.query(models.Server).filter(
         models.Server.id == server_id,
         models.Server.user_id == current_user.id
@@ -588,14 +596,41 @@ def get_server(
 
     return server
 
-@app.get("/api/v1/servers", response_model=List[schemas.Server])
+@server_router.get("/", response_model=List[schemas.Server])
 def get_all_servers(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
+    """
+    Get all servers registered to the current user.
+    """
     servers = db.query(models.Server).filter(models.Server.user_id == current_user.id).order_by(models.Server.hostname).all()
     return servers
 
+@server_router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unregister_server(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Unregister a server and delete all associated data.
+    Only the server owner can perform this action.
+    """
+    server = db.query(models.Server).filter(
+        models.Server.id == server_id,
+        models.Server.user_id == current_user.id
+    ).first()
+
+    if not server: 
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+ 
+    db.delete(server)
+    db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+app.include_router(server_router)
 # ========== METRICS ==========
 @app.get("/api/v1/metrics/history")
 def historical_metrics(

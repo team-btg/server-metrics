@@ -28,7 +28,7 @@ const fetchActiveAlertCount = async (serverId: string, token: string): Promise<n
 
 export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
   const [tab, setTab] = useState("dashboard"); 
-  const [period, setPeriod] = useState('1h');
+  const [period, setPeriod] = useState('15m');
   const [interval, setInterval] = useState(5000); 
 
   const { data: activeAlertsCount } = useQuery({
@@ -210,7 +210,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
       </div> 
       
       {/* Tab Content Area */}
-      <div className="bg-[#1e293b] rounded-b-lg rounded-tr-lg shadow-xl min-h-[calc(100vh-80px)]">
+      <div className="bg-transparent rounded-b-lg rounded-tr-lg shadow-xl min-h-[calc(100vh-80px)]">
         {renderContent()}
       </div>  
 

@@ -24,10 +24,7 @@ class Server(Base):
     pubkey = Column(String)
     hostname = Column(String)
     tags = Column(JSON)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    metrics = relationship("Metric", back_populates="server")
-
-    logs = relationship("Log", back_populates="server", cascade="all, delete-orphan")
+    created_at = Column(DateTime(timezone=True), server_default=func.now()) 
 
     user_id = Column(Integer, ForeignKey("users.id"))
     webhook_url = Column(String, nullable=True)
@@ -35,8 +32,12 @@ class Server(Base):
     webhook_headers = Column(JSON, nullable=True)
 
     owner = relationship("User", back_populates="servers") 
-    api_keys = relationship("ApiKey", back_populates="server")
 
+    api_keys = relationship("ApiKey", back_populates="server", cascade="all, delete-orphan")
+    metrics = relationship("Metric", back_populates="server", cascade="all, delete-orphan")
+    logs = relationship("Log", back_populates="server", cascade="all, delete-orphan")
+    alert_rules = relationship("AlertRule", back_populates="server", cascade="all, delete-orphan")
+ 
 class AlertMetric(str, enum.Enum):
     CPU = "cpu"
     MEMORY = "memory"
