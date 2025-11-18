@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AlertTriangle, Bell, FileText, Folder, Microchip, HardDrive } from 'lucide-react';
+import { AlertTriangle, Bell, FileText, Folder, Microchip, HardDrive, HistoryIcon } from 'lucide-react';
 import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
 import ProcessList from './ProcessList';
@@ -9,6 +9,7 @@ import { useMetrics } from "../hooks/useMetrics";
 import ChatPopup from "./ChatPopup";
 import DiskUsage from "./DiskUsage"; 
 import AlertHistory from "./AlertHistory";  
+import IncidentHistory from "./IncidentHistory";
 import { useQuery } from '@tanstack/react-query';
 
 interface MainTabsProps {
@@ -89,6 +90,8 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
         return <DiskUsage metricPoint={metrics} />;
        case "alerts": 
         return <AlertHistory serverId={serverId} token={token || ""} />;
+        case "history":
+          return <IncidentHistory serverId={serverId} />;
       default:
         return <Dashboard metricPoint={metrics} />;
     }
@@ -172,6 +175,21 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
               <span>Alerts</span>
             </div>
             {tab === "alerts" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
+          </button>
+
+          <button
+            className={`relative px-4 py-2 rounded-t-lg border border-b-0 transition-all duration-200 ${
+              tab === "history" 
+                ? "bg-[#1e293b] border-gray-600 text-white shadow-lg" 
+                : "bg-[#0f172a] border-transparent text-gray-400 hover:text-gray-300 hover:bg-[#1a2436]"
+            }`}
+            onClick={() => setTab("history")}
+          >
+            <div className="flex items-center space-x-2">
+              <HistoryIcon size={16} />
+              <span>History</span>
+            </div>
+            {tab === "history" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
           </button>
         </div>
 

@@ -6,7 +6,7 @@ import google.generativeai as genai
 import requests
 import json
 
-from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect, Response
+from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect, Response, BackgroundTasks
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from . import crud, security
 from fastapi.encoders import jsonable_encoder
@@ -630,7 +630,107 @@ def unregister_server(
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+@server_router.get("/{server_id}/incidents", response_model=List[schemas.Incident])
+def get_server_incidents(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Add permission check to ensure user owns the server
+    server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == current_user.id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    
+    return crud.get_incidents_for_server(db=db, server_id=server_id)
+
 app.include_router(server_router)
+
+def run_incident_analysis(incident_id: UUID):
+    """
+    This function runs in the background to analyze an incident.
+    It gathers context, asks the AI for a summary, and updates the incident record.
+    """
+    db = SessionLocal()
+    try:
+        incident = db.query(models.Incident).options(
+            joinedload(models.Incident.server),
+            joinedload(models.Incident.alert_rule)
+        ).filter(models.Incident.id == incident_id).first()
+
+        if not incident:
+            print(f"ERROR: Incident {incident_id} not found for analysis.")
+            return
+
+        # 1. Gather Context: Define time window (5 mins before incident)
+        end_time = incident.triggered_at
+        start_time = end_time - timedelta(minutes=5)
+
+        # 2. Correlate Metrics & Processes
+        metric_records = db.query(models.Metric).filter(
+            models.Metric.server_id == incident.server_id,
+            models.Metric.timestamp.between(start_time, end_time)
+        ).order_by(models.Metric.timestamp.desc()).limit(10).all()
+
+        # 3. Correlate Logs
+        log_records = db.query(models.Log).filter(
+            models.Log.server_id == incident.server_id,
+            models.Log.timestamp.between(start_time, end_time),
+            models.Log.level.in_(['ERROR', 'CRITICAL', 'FATAL', 'WARNING'])
+        ).limit(20).all()
+
+        # 4. Prepare data for the AI
+        correlated_data = {
+            "alert_details": {
+                "name": incident.alert_rule.name,
+                "condition": f"{incident.alert_rule.metric} {incident.alert_rule.operator} {incident.alert_rule.threshold}% for {incident.alert_rule.duration_minutes} mins"
+            },
+            "recent_metrics": [jsonable_encoder(m.metrics) for m in metric_records],
+            "top_processes": [jsonable_encoder(m.processes) for m in metric_records if m.processes],
+            "relevant_logs": [{"level": log.level, "message": log.message} for log in log_records]
+        }
+        incident.correlated_data = correlated_data # Store for auditing
+
+        # 5. Construct the AI Prompt
+        prompt = f"""
+        You are an expert Site Reliability Engineer (SRE). An alert has been triggered. Analyze the following correlated data to determine the likely root cause and suggest a course of action.
+
+        Alert Details:
+        - Name: {correlated_data['alert_details']['name']}
+        - Condition: {correlated_data['alert_details']['condition']}
+
+        Recent Metrics (latest first):
+        {json.dumps(correlated_data['recent_metrics'], indent=2)}
+
+        Top Processes at the time (latest first):
+        {json.dumps(correlated_data['top_processes'], indent=2)}
+
+        Relevant Logs from the timeframe:
+        {json.dumps(correlated_data['relevant_logs'], indent=2)}
+
+        Based on this data, provide a brief, one-paragraph summary of the likely root cause. Then, provide a short, scannable list of recommended actions. Be concise and direct.
+        """
+
+        # 6. Call the AI Model
+        if genai_model:
+            try:
+                response = genai_model.generate_content(prompt)
+                incident.summary = response.text
+            except Exception as e:
+                incident.summary = f"AI analysis failed: {e}"
+        else:
+            incident.summary = "AI model not configured. Manual investigation required."
+
+        # 7. Finalize Incident
+        incident.status = "active"
+        db.commit()
+        print(f"AI analysis complete for incident {incident_id}.")
+
+    except Exception as e:
+        print(f"FATAL ERROR in run_incident_analysis: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 # ========== METRICS ==========
 @app.get("/api/v1/metrics/history")
 def historical_metrics(
@@ -742,6 +842,7 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
 @app.post("/api/v1/metrics")
 async def post_metrics(
     payload: List[schemas.MetricIn],
+    background_tasks: BackgroundTasks,
     server_uuid: models.Server = Depends(get_server_from_api_key),
     db: Session = Depends(get_db),
 ):
@@ -788,12 +889,12 @@ async def post_metrics(
             server_id=str(item.server_id) # Attribute for filtering
         )
 
-    evaluate_alerts_for_server(server_uuid.id, db)
+    evaluate_alerts_for_server(server_uuid.id, db, background_tasks) # Pass background_tasks
 
     db.commit()
     return {"accepted": accepted}
 
-def evaluate_alerts_for_server(server_id: UUID, db: Session):
+def evaluate_alerts_for_server(server_id: UUID, db: Session, background_tasks: BackgroundTasks): # Add background_tasks
     server = db.query(models.Server).filter(models.Server.id == server_id).first()
     if not server or not server.user_id:
         return  # Can't notify if there's no owner
@@ -851,15 +952,23 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session):
         ).first()
 
         if is_violated and not active_event:
-            # --- TRIGGER NEW ALERT ---
+            # --- TRIGGER NEW ALERT & INCIDENT ---
             print(f"TRIGGERING alert for rule '{rule.name}' on server '{server.hostname}'")
-            # 1. Create the event in the DB
+            
+            # 1. Create the AlertEvent
             new_event = models.AlertEvent(rule_id=rule.id)
             db.add(new_event)
-            db.commit()
-            # 2. Send notification
+            db.commit() # Commit to get the event ID
+
+            # 2. Create the Incident
+            new_incident = crud.create_incident(db=db, server_id=server.id, alert_rule_id=rule.id)
+
+            # 3. Start analysis in the background
+            background_tasks.add_task(run_incident_analysis, new_incident.id)
+
+            # 4. Send notification
             subject = f"🚨 Alert Firing: {rule.name} on {server.hostname}"
-            body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes."
+            body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes.\n\nAn incident has been created and is being analyzed."
             send_email_notification(server.owner.email, subject, body)
             if server.webhook_url and server.webhook_format:
                 send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True, headers=server.webhook_headers)

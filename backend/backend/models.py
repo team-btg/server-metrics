@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, func, Float, Boolean, Enum
+from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, Text, func, Float, Boolean, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -60,6 +60,23 @@ class AlertRule(Base):
     
     server = relationship("Server")
 
+class Incident(Base):
+    __tablename__ = "incidents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
+    alert_rule_id = Column(UUID(as_uuid=True), ForeignKey("alert_rules.id"), nullable=False)
+    
+    status = Column(String, default="investigating", index=True) # investigating, active, resolved
+    triggered_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    summary = Column(Text, nullable=True)
+    correlated_data = Column(JSON, nullable=True) # Store the raw data fed to the AI for audit
+
+    server = relationship("Server")
+    alert_rule = relationship("AlertRule")
+    
 class AlertEvent(Base):
     __tablename__ = "alert_events"
     id = Column(Integer, primary_key=True, index=True)
