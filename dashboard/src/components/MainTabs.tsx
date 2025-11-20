@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AlertTriangle, Bell, FileText, Folder, Microchip, HardDrive, HistoryIcon } from 'lucide-react';
+import { Bell, FileText, Folder, Microchip, HardDrive, HistoryIcon } from 'lucide-react';
 import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
 import ProcessList from './ProcessList';
@@ -7,9 +7,8 @@ import PeriodSelector from './PeriodSelector';
 import IntervalSelector from './IntervalSelector';
 import { useMetrics } from "../hooks/useMetrics";   
 import ChatPopup from "./ChatPopup";
-import DiskUsage from "./DiskUsage"; 
-import AlertHistory from "./AlertHistory";  
-import IncidentHistory from "./IncidentHistory";
+import DiskUsage from "./DiskUsage";  
+import IncidentFeed from "./IncidentFeed";
 import { useQuery } from '@tanstack/react-query';
 
 interface MainTabsProps {
@@ -87,11 +86,9 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
       case 'processes': 
         return <ProcessList metricPoint={metrics} />;
       case 'disk':  
-        return <DiskUsage metricPoint={metrics} />;
-       case "alerts": 
-        return <AlertHistory serverId={serverId} token={token || ""} />;
-        case "history":
-          return <IncidentHistory serverId={serverId} />;
+        return <DiskUsage metricPoint={metrics} />; 
+      case "history":
+          return <IncidentFeed serverId={serverId} />;
       default:
         return <Dashboard metricPoint={metrics} />;
     }
@@ -160,22 +157,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
               <span>Disk</span>
             </div>
             {tab === "disk" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
-          </button> 
-
-          <button
-            className={`relative px-4 py-2 rounded-t-lg border border-b-0 transition-all duration-200 ${
-              tab === "alerts" 
-                ? "bg-[#1e293b] border-gray-600 text-white shadow-lg" 
-                : "bg-[#0f172a] border-transparent text-gray-400 hover:text-gray-300 hover:bg-[#1a2436]"
-            }`}
-            onClick={() => setTab("alerts")}
-          >
-            <div className="flex items-center space-x-2">
-              <AlertTriangle size={16} />
-              <span>Alerts</span>
-            </div>
-            {tab === "alerts" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
-          </button>
+          </button>  
 
           <button
             className={`relative px-4 py-2 rounded-t-lg border border-b-0 transition-all duration-200 ${
@@ -204,7 +186,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
             <span className={`hidden sm:block font-semibold ${systemStatus.color}`}>{systemStatus.text}</span> 
           </div>
           <button 
-            onClick={() => setTab('alerts')} 
+            onClick={() => setTab('history')} 
             className="bg-transparent relative text-gray-400 text-white transition-colors"
             aria-label="View active alerts"
           >

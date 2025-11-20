@@ -13,9 +13,9 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware  
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, sessionmaker
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import desc 
+from sqlalchemy import desc, create_engine 
 from backend.database import SessionLocal, engine, Base, get_db, initialize_database
 from backend import models, schemas 
 from backend.security import create_access_token, verify_access_token, decode_jwt
@@ -335,71 +335,12 @@ def get_active_alert_count_for_server(
     if not server:
         raise HTTPException(status_code=404, detail="Server not found or permission denied.")
  
-    count = db.query(models.AlertEvent).join(models.AlertEvent.rule).filter(
-        models.AlertRule.server_id == server_id,
-        models.AlertEvent.resolved_at == None
+    count = db.query(models.Incident).filter(
+        models.Incident.server_id == server_id,
+        models.Incident.resolved_at == None
     ).count()
     
     return count
-
-@alerts_router.get("/events/servers/{server_id}", response_model=List[schemas.AlertEventRead])
-def get_alert_events_for_server(
-    server_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-): 
-    server = db.query(models.Server).filter(models.Server.id == server_id, models.Server.user_id == current_user.id).first()
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
- 
-    events = db.query(models.AlertEvent).options(
-        joinedload(models.AlertEvent.rule)
-    ).filter(
-        models.AlertEvent.rule.has(server_id=server_id)
-    ).order_by(
-        desc(models.AlertEvent.triggered_at)
-    ).limit(100).all()
-    
-    return events
-
-@alerts_router.put("/events/{event_id}/resolve", response_model=schemas.AlertEventRead)
-def resolve_alert_event(
-    event_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-): 
-    event = db.query(models.AlertEvent).join(models.AlertEvent.rule).join(models.AlertRule.server).filter(
-        models.AlertEvent.id == event_id,
-        models.Server.user_id == current_user.id
-    ).first()
-
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert event not found or you do not have permission to access it."
-        )
-
-    if event.resolved_at: 
-        return event
-
-    event.resolved_at = datetime.utcnow()
-    db.commit()
-    db.refresh(event)
- 
-    subject = f"ℹ️ Alert Manually Resolved: {event.rule.name}"
-    body = f"The alert '{event.rule.name}' on server '{event.rule.server.hostname}' was manually marked as resolved by {current_user.email}."
-    send_email_notification(current_user.email, subject, body)
-    if event.rule.server.webhook_url:
-        send_webhook_notification(
-            event.rule.server.webhook_url, 
-            event.rule.server.webhook_format, 
-            subject, 
-            body, 
-            is_firing=False, 
-            headers=event.rule.server.webhook_headers
-        )
-
-    return event
 
 @alerts_router.put("/{rule_id}", response_model=schemas.AlertRule)
 def update_alert_rule(
@@ -643,6 +584,45 @@ def get_server_incidents(
     
     return crud.get_incidents_for_server(db=db, server_id=server_id)
 
+@server_router.put("/incidents/{incident_id}/resolve", response_model=schemas.Incident)
+def resolve_incident(
+    incident_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Manually resolve an incident.""" 
+    incident = db.query(models.Incident).options(
+        joinedload(models.Incident.alert_rule).joinedload(models.AlertRule.server)
+    ).filter(
+        models.Incident.id == incident_id
+    ).first()
+
+    if not incident or incident.server.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Incident not found or permission denied.")
+
+    if incident.status == 'resolved':
+        return incident # Already resolved, do nothing
+
+    incident.status = 'resolved'
+    incident.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(incident)
+
+    subject = f"ℹ️ Alert Manually Resolved: {incident.alert_rule.name}"
+    body = f"The alert '{incident.alert_rule.name}' on server '{incident.alert_rule.server.hostname}' was manually marked as resolved by {current_user.email}."
+    send_email_notification(current_user.email, subject, body)
+    if incident.alert_rule.server.webhook_url:
+        send_webhook_notification(
+            incident.alert_rule.server.webhook_url, 
+            incident.alert_rule.server.webhook_format, 
+            subject, 
+            body, 
+            is_firing=False, 
+            headers=incident.alert_rule.server.webhook_headers
+        )
+
+    return incident
+
 app.include_router(server_router)
 
 def run_incident_analysis(incident_id: UUID):
@@ -650,7 +630,26 @@ def run_incident_analysis(incident_id: UUID):
     This function runs in the background to analyze an incident.
     It gathers context, asks the AI for a summary, and updates the incident record.
     """
-    db = SessionLocal()
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        print("FATAL ERROR in run_incident_analysis: DATABASE_URL not set.")
+        return
+        
+    # For local development with the proxy, we need to use the correct driver
+    if "127.0.0.1" in db_url or "localhost" in db_url:
+        # Use psycopg2 when connecting via proxy, as pg8000 may have issues here.
+        # Ensure you have 'psycopg2-binary' installed.
+        db_url = db_url.replace("postgresql+pg8000", "postgresql+psycopg2")
+
+    try:
+        engine = create_engine(db_url)
+        SessionLocal_BG = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal_BG()
+    except Exception as e:
+        print(f"FATAL ERROR creating DB session in background task: {e}")
+        return
+    
     try:
         incident = db.query(models.Incident).options(
             joinedload(models.Incident.server),
@@ -660,25 +659,21 @@ def run_incident_analysis(incident_id: UUID):
         if not incident:
             print(f"ERROR: Incident {incident_id} not found for analysis.")
             return
-
-        # 1. Gather Context: Define time window (5 mins before incident)
+ 
         end_time = incident.triggered_at
         start_time = end_time - timedelta(minutes=5)
-
-        # 2. Correlate Metrics & Processes
+ 
         metric_records = db.query(models.Metric).filter(
             models.Metric.server_id == incident.server_id,
             models.Metric.timestamp.between(start_time, end_time)
         ).order_by(models.Metric.timestamp.desc()).limit(10).all()
-
-        # 3. Correlate Logs
+ 
         log_records = db.query(models.Log).filter(
             models.Log.server_id == incident.server_id,
             models.Log.timestamp.between(start_time, end_time),
             models.Log.level.in_(['ERROR', 'CRITICAL', 'FATAL', 'WARNING'])
         ).limit(20).all()
-
-        # 4. Prepare data for the AI
+ 
         correlated_data = {
             "alert_details": {
                 "name": incident.alert_rule.name,
@@ -689,8 +684,7 @@ def run_incident_analysis(incident_id: UUID):
             "relevant_logs": [{"level": log.level, "message": log.message} for log in log_records]
         }
         incident.correlated_data = correlated_data # Store for auditing
-
-        # 5. Construct the AI Prompt
+ 
         prompt = f"""
         You are an expert Site Reliability Engineer (SRE). An alert has been triggered. Analyze the following correlated data to determine the likely root cause and suggest a course of action.
 
@@ -709,8 +703,7 @@ def run_incident_analysis(incident_id: UUID):
 
         Based on this data, provide a brief, one-paragraph summary of the likely root cause. Then, provide a short, scannable list of recommended actions. Be concise and direct.
         """
-
-        # 6. Call the AI Model
+ 
         if genai_model:
             try:
                 response = genai_model.generate_content(prompt)
@@ -719,8 +712,7 @@ def run_incident_analysis(incident_id: UUID):
                 incident.summary = f"AI analysis failed: {e}"
         else:
             incident.summary = "AI model not configured. Manual investigation required."
-
-        # 7. Finalize Incident
+ 
         incident.status = "active"
         db.commit()
         print(f"AI analysis complete for incident {incident_id}.")
@@ -946,40 +938,40 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session, background_tasks: B
                 break
 
         # Check if an alert is already active for this rule
-        active_event = db.query(models.AlertEvent).filter(
-            models.AlertEvent.rule_id == rule.id,
-            models.AlertEvent.resolved_at == None
+        active_event = db.query(models.Incident).filter(
+            models.Incident.alert_rule_id == rule.id,
+            models.Incident.resolved_at == None
         ).first()
 
-        if is_violated and not active_event:
-            # --- TRIGGER NEW ALERT & INCIDENT ---
+        if is_violated and not active_event: 
             print(f"TRIGGERING alert for rule '{rule.name}' on server '{server.hostname}'")
-            
-            # 1. Create the AlertEvent
-            new_event = models.AlertEvent(rule_id=rule.id)
-            db.add(new_event)
-            db.commit() # Commit to get the event ID
-
-            # 2. Create the Incident
+              
             new_incident = crud.create_incident(db=db, server_id=server.id, alert_rule_id=rule.id)
-
-            # 3. Start analysis in the background
+ 
             background_tasks.add_task(run_incident_analysis, new_incident.id)
-
-            # 4. Send notification
+ 
             subject = f"🚨 Alert Firing: {rule.name} on {server.hostname}"
             body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes.\n\nAn incident has been created and is being analyzed."
             send_email_notification(server.owner.email, subject, body)
             if server.webhook_url and server.webhook_format:
                 send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True, headers=server.webhook_headers)
 
-        elif not is_violated and active_event:
-            # --- RESOLVE EXISTING ALERT ---
+        elif not is_violated and active_event: 
             print(f"RESOLVING alert for rule '{rule.name}' on server '{server.hostname}'")
-            # 1. Update the event in the DB
+         
             active_event.resolved_at = datetime.utcnow()
+
+            incident_to_resolve = db.query(models.Incident).filter(
+                models.Incident.alert_rule_id == rule.id,
+                models.Incident.status != 'resolved'
+            ).order_by(desc(models.Incident.triggered_at)).first()
+
+            if incident_to_resolve:
+                incident_to_resolve.status = 'resolved'
+                incident_to_resolve.resolved_at = datetime.utcnow()
+
             db.commit()
-            # 2. Send notification
+         
             subject = f"✅ Alert Resolved: {rule.name} on {server.hostname}"
             body = f"The alert '{rule.name}' has been resolved.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThe system has returned to a normal state."
             send_email_notification(server.owner.email, subject, body)

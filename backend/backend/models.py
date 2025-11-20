@@ -65,7 +65,7 @@ class Incident(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
-    alert_rule_id = Column(UUID(as_uuid=True), ForeignKey("alert_rules.id"), nullable=False)
+    alert_rule_id = Column(Integer, ForeignKey("alert_rules.id"), nullable=False) # Changed from UUID to Integer
     
     status = Column(String, default="investigating", index=True) # investigating, active, resolved
     triggered_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -76,15 +76,6 @@ class Incident(Base):
 
     server = relationship("Server")
     alert_rule = relationship("AlertRule")
-    
-class AlertEvent(Base):
-    __tablename__ = "alert_events"
-    id = Column(Integer, primary_key=True, index=True)
-    rule_id = Column(Integer, ForeignKey("alert_rules.id"), nullable=False)
-    triggered_at = Column(DateTime(timezone=True), server_default=func.now())
-    resolved_at = Column(DateTime(timezone=True), nullable=True)
-    
-    rule = relationship("AlertRule")
            
 class Metric(Base):
     __tablename__ = "metrics"

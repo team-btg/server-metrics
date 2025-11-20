@@ -41,7 +41,7 @@ class AlertRule(AlertRuleBase):
 class Incident(BaseModel):
     id: UUID
     server_id: UUID
-    alert_rule_id: UUID
+    alert_rule_id: int
     status: str
     triggered_at: datetime
     resolved_at: Optional[datetime] = None
@@ -49,15 +49,7 @@ class Incident(BaseModel):
     alert_rule: AlertRule
 
     class Config:
-        from_attributes = True
-        
-class AlertEventRead(BaseModel):
-    id: int
-    triggered_at: datetime
-    resolved_at: Optional[datetime] = None
-    rule: AlertRule
-
-    model_config = ConfigDict(from_attributes=True)
+        from_attributes = True 
 
 class ServerCreate(BaseModel):
     hostname: str

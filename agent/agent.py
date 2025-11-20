@@ -273,6 +273,18 @@ def collect_metrics(server_id):
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
 
+    # --- Get Top 5 Processes by RAM ---
+    processes = []
+    for proc in sorted(psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']), key=lambda p: p.info['memory_percent'], reverse=True)[:5]:
+        try:
+            proc.memory_percent(interval=0.01)
+            time.sleep(0.01)
+            info = proc.info
+            info['memory_percent'] = proc.memory_percent()
+            processes.append(info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
     # Enhanced server details
     server_info = {
         "hostname": socket.gethostname(),
@@ -327,7 +339,6 @@ def collect_metrics(server_id):
             }
         }
     }
-
 
 # ==============================
 # METRICS PUSH
@@ -604,7 +615,6 @@ def main():
             SESSION.close()
         except Exception:
             pass
-
 
 if __name__ == "__main__":
     main()
