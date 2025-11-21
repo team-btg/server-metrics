@@ -37,7 +37,27 @@ class Server(Base):
     metrics = relationship("Metric", back_populates="server", cascade="all, delete-orphan")
     logs = relationship("Log", back_populates="server", cascade="all, delete-orphan")
     alert_rules = relationship("AlertRule", back_populates="server", cascade="all, delete-orphan")
- 
+    incidents = relationship("Incident", back_populates="server", cascade="all, delete-orphan")
+    recommendations = relationship("Recommendation", back_populates="server", cascade="all, delete-orphan") # Add this line
+
+class RecommendationType(str, enum.Enum):
+    UPGRADE = "UPGRADE"
+    DOWNGRADE = "DOWNGRADE"
+    STABLE = "STABLE"
+
+class Recommendation(Base):
+    __tablename__ = "recommendations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
+    
+    recommendation_type = Column(Enum(RecommendationType), nullable=False)
+    summary = Column(Text, nullable=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    server = relationship("Server", back_populates="recommendations")
+
 class AlertMetric(str, enum.Enum):
     CPU = "cpu"
     MEMORY = "memory"

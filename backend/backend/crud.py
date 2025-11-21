@@ -3,6 +3,27 @@ from . import models, schemas
 from sqlalchemy.orm import joinedload
 from uuid import UUID
 from datetime import datetime
+from sqlalchemy import desc
+
+def create_recommendation(db: Session, server_id: UUID, rec_type: schemas.RecommendationType, summary: str) -> models.Recommendation:
+    """Creates a new recommendation record in the database."""
+    db_recommendation = models.Recommendation(
+        server_id=server_id,
+        recommendation_type=rec_type,
+        summary=summary
+    )
+    db.add(db_recommendation)
+    db.commit()
+    db.refresh(db_recommendation)
+    return db_recommendation
+
+def get_latest_recommendation_for_server(db: Session, server_id: UUID) -> models.Recommendation | None:
+    """Retrieves the most recent recommendation for a given server."""
+    return db.query(models.Recommendation).filter(
+        models.Recommendation.server_id == server_id
+    ).order_by(
+        desc(models.Recommendation.created_at)
+    ).first()
 
 def create_incident(db: Session, server_id: UUID, alert_rule_id: UUID) -> models.Incident:
     """Creates a new incident record in the database."""

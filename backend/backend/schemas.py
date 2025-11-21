@@ -4,6 +4,8 @@ from datetime import datetime
 from uuid import UUID  
 import enum
 
+from backend.models import RecommendationType
+
 class AlertMetric(str, enum.Enum):
     CPU = "cpu"
     MEMORY = "memory"
@@ -51,6 +53,21 @@ class Incident(BaseModel):
     class Config:
         from_attributes = True 
 
+class RecommendationBase(BaseModel):
+    recommendation_type: RecommendationType
+    summary: str
+
+class RecommendationCreate(RecommendationBase):
+    pass    
+
+class Recommendation(RecommendationBase):
+    id: int
+    server_id: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+        
 class ServerCreate(BaseModel):
     hostname: str
     tags: Optional[List[str]] = []

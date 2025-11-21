@@ -5,6 +5,7 @@ import os
 import google.generativeai as genai 
 import requests
 import json
+import numpy as np
 
 from fastapi import APIRouter, FastAPI, Depends, Request, Security, status, HTTPException, Query, WebSocket, WebSocketDisconnect, Response, BackgroundTasks
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -32,6 +33,8 @@ from sendgrid.helpers.mail import Mail
 from contextlib import asynccontextmanager
 from google.cloud import pubsub_v1
 from fastapi.responses import RedirectResponse
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from contextlib import asynccontextmanager
 
 load_dotenv()
 
@@ -76,11 +79,113 @@ oauth.register(
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+# --- Right-Sizing Analysis Notification Functions ---
+def generate_right_sizing_recommendation(server_id: UUID):
+    """Analyzes 30 days of metrics for a server and generates a right-sizing recommendation."""
+    print(f"Starting right-sizing analysis for server {server_id}...")
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url or not genai_model:
+        print("Analysis skipped: DATABASE_URL or Gemini API not configured.")
+        return
+
+    if "127.0.0.1" in db_url or "localhost" in db_url:
+        db_url = db_url.replace("postgresql+pg8000", "postgresql+psycopg2")
+
+    try:
+        engine = create_engine(db_url)
+        SessionLocal_BG = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal_BG()
+    except Exception as e:
+        print(f"Analysis failed for {server_id}: Could not create DB session: {e}")
+        return
+
+    try:
+        # Fetch last 30 days of metrics
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        metrics = db.query(models.Metric.metrics).filter(
+            models.Metric.server_id == server_id,
+            models.Metric.timestamp >= thirty_days_ago
+        ).all()
+
+        if len(metrics) < 10:  
+            print(f"Analysis skipped for {server_id}: Not enough metric data.")
+            return 
+        
+        cpu_usage = [m[0].get('cpu_usage', 0) for m in metrics]
+        mem_usage = [m[0].get('memory_usage', 0) for m in metrics]
+
+        avg_cpu = np.mean(cpu_usage)
+        p95_cpu = np.percentile(cpu_usage, 95)
+        avg_mem = np.mean(mem_usage)
+        p95_mem = np.percentile(mem_usage, 95)
+
+        # AI Prompt
+        prompt = f"""
+        You are an expert cloud cost optimization and performance analyst.
+        Analyze the following server resource utilization metrics from the last 30 days and provide a right-sizing recommendation.
+
+        Metrics:
+        - Average CPU Utilization: {avg_cpu:.2f}%
+        - 95th Percentile CPU Utilization: {p95_cpu:.2f}%
+        - Average Memory Utilization: {avg_mem:.2f}%
+        - 95th Percentile Memory Utilization: {p95_mem:.2f}%
+
+        Analysis Guidelines:
+        - A server is a good candidate for a DOWNGRADE if its p95 CPU and p95 Memory are consistently low (e.g., < 40%).
+        - A server is a candidate for an UPGRADE if its p95 CPU or p95 Memory are consistently high (e.g., > 85%), indicating it is struggling to handle peak loads.
+        - Otherwise, the server is considered STABLE.
+
+        Respond with a JSON object containing two keys:
+        1. "recommendation_type": A string, either "UPGRADE", "DOWNGRADE", or "STABLE".
+        2. "summary": A concise, one-paragraph summary explaining your reasoning in a way a non-expert can understand.
+
+        Example Response:
+        {{
+          "recommendation_type": "DOWNGRADE",
+          "summary": "This server's peak resource usage over the last month has been consistently low. The 95th percentile for both CPU and memory is well below 50%, indicating that the server is over-provisioned. Downgrading to a smaller instance size could lead to significant cost savings without impacting performance."
+        }}
+        """
+ 
+        response = genai_model.generate_content(prompt)
+         
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
+        rec_data = json.loads(cleaned_response)
+
+        crud.create_recommendation(
+            db=db,
+            server_id=server_id,
+            rec_type=rec_data["recommendation_type"],
+            summary=rec_data["summary"]
+        )
+        print(f"Successfully generated and stored recommendation for server {server_id}.")
+
+    except Exception as e:
+        print(f"An error occurred during analysis for server {server_id}: {e}")
+    finally:
+        db.close()
+
+def run_analysis_for_all_servers():
+    """Job to be run by the scheduler."""
+    print("Scheduler starting daily right-sizing analysis for all servers...")
+    db = SessionLocal()
+    try:
+        servers = db.query(models.Server).all()
+        for server in servers:
+            generate_right_sizing_recommendation(server.id)
+    finally:
+        db.close()
+    print("Scheduler finished daily analysis.")
+ 
+scheduler = AsyncIOScheduler()
+scheduler.add_job(run_analysis_for_all_servers, 'interval', days=1)
+ 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_database()
+    scheduler.start()
     yield
     print("Shutting down...")
+    scheduler.shutdown()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -109,7 +214,7 @@ app.add_middleware(
 
 auth_scheme = HTTPBearer(auto_error=True)
 manager = ConnectionManager()
-  
+ 
 def send_email_notification(recipient_email: str, subject: str, body: str):
     if not SENDGRID_API_KEY or not SMTP_SENDER_EMAIL:
         print("WARNING: SendGrid API Key or Sender Email not configured. Skipping email notification.")
@@ -476,6 +581,22 @@ def agent_register(server_create: schemas.ServerCreate, db: Session = Depends(ge
     return {"id": new_server.id, "hostname": new_server.hostname, "api_key": api_key_plain}
 
 server_router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
+
+@server_router.get("/{server_id}/recommendations", response_model=List[schemas.Recommendation])
+def get_server_recommendations(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all recommendations for a server, most recent first."""
+    server = db.query(models.Server).filter(models.Server.id == server_id).first()
+    if not server or server.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+    
+    return db.query(models.Recommendation).filter(
+        models.Recommendation.server_id == server_id
+    ).order_by(desc(models.Recommendation.created_at)).limit(5).all()
+ 
 @server_router.post("/claim", response_model=schemas.Server)
 def claim_server(
     claim_request: schemas.ServerClaim, 
