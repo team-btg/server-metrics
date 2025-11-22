@@ -1,16 +1,32 @@
-import React, { useState } from "react";
-import { Bell, FileText, Folder, Microchip, HardDrive, HistoryIcon } from 'lucide-react';
+import React, { useState, useMemo } from "react"; // Import useMemo
+import { Bell, FileText, Folder, Microchip, HardDrive, HistoryIcon, AlertTriangle, Lightbulb, LightbulbOff } from 'lucide-react'; // Import AlertTriangle
 import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
 import ProcessList from './ProcessList';
 import PeriodSelector from './PeriodSelector';
-import IntervalSelector from './IntervalSelector';
-import { useMetrics } from "../hooks/useMetrics";   
+import IntervalSelector from './IntervalSelector'; 
 import ChatPopup from "./ChatPopup";
 import DiskUsage from "./DiskUsage";  
 import IncidentFeed from "./IncidentFeed";
+import { useMetrics } from "../hooks/useMetrics";   
+import { useWebSocketMetrics } from "../hooks/useWebSocketMetrics";
 import { useQuery } from '@tanstack/react-query';
-
+import RightSizingAdvisor from './RightSizingAdvisor'; 
+ 
+const DashboardSkeleton = () => (
+    <div className="p-4 space-y-4 animate-pulse">
+        <div className="flex justify-center"><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><div className="bg-[#1e293b] rounded-2xl size-44"></div><div className="bg-[#1e293b] rounded-2xl size-44"></div><div className="bg-[#1e293b] rounded-2xl size-44"></div></div></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+        </div>
+    </div>
+);
+ 
 interface MainTabsProps {
   serverId: string;
   token?: string;
@@ -28,8 +44,8 @@ const fetchActiveAlertCount = async (serverId: string, token: string): Promise<n
 
 export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
   const [tab, setTab] = useState("dashboard"); 
-  const [period, setPeriod] = useState('15m');
-  const [interval, setInterval] = useState(5000); 
+  const [period, setPeriod] = useState('1h'); // Default to 1h for better initial view
+  const [interval, setInterval] = useState(10000); // Interval is now less critical
 
   const { data: activeAlertsCount } = useQuery({
     queryKey: ['activeAlertCount', serverId],
@@ -38,8 +54,35 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
     refetchInterval: 15000, // Refetch every 15 seconds
   });
 
-  const metrics = useMetrics(serverId, period, interval, token); 
-  const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
+  const [isAdvisorVisible, setIsAdvisorVisible] = useState(true);
+ 
+  // --- NEW DECOUPLED DATA FETCHING ---
+  const { historicalMetrics, isLoading, error } = useMetrics(serverId, period, token); 
+  const liveMetrics = useWebSocketMetrics(serverId, token);
+
+  const { data: recommendations } = useQuery<any[]>({
+    queryKey: ['recommendations', serverId], 
+    queryFn: () => fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers/${serverId}/recommendations`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+    }).then(res => res.json()),
+    enabled: !!token,
+  });
+
+  const hasActionableRecommendation = recommendations && recommendations.length > 0 && recommendations[0].recommendation_type !== 'STABLE';
+
+  // Combine historical and live data, ensuring no duplicates and proper sorting
+  const allMetrics = useMemo(() => {
+    const metricMap = new Map();
+    // Add historical data first
+    historicalMetrics.forEach(metric => metricMap.set(metric.timestamp, metric));
+    // Overwrite with live data, which is more up-to-date
+   liveMetrics.forEach(metric => metricMap.set(metric.timestamp, metric));
+    
+    return Array.from(metricMap.values())
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [historicalMetrics, liveMetrics]);
+  
+  const latestMetric = allMetrics.length > 0 ? allMetrics[allMetrics.length - 1] : null;
 
   const getSystemStatus = () => {
     if (!latestMetric) return { status: 'loading', text: 'Loading...', color: 'text-gray-700', bgColor: 'bg-gray-700' };
@@ -78,23 +121,47 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
   const systemStatus = getSystemStatus();
   
   const renderContent = () => {
+    // --- NEW LOADING AND ERROR HANDLING ---
+    if (tab === 'dashboard') {
+      if (isLoading) {
+        return <DashboardSkeleton />;
+      }
+      if (error) {
+        return (
+          <div className="flex flex-col items-center justify-center h-96 text-red-400">
+            <AlertTriangle className="h-12 w-12 mb-4" />
+            <h2 className="text-xl font-bold">Failed to Load Dashboard</h2>
+            <p className="mt-2 text-gray-400">{error}</p>
+          </div>
+        );
+      }
+    }
+
     switch (tab) {
       case 'dashboard':
-        return <Dashboard metricPoint={metrics} />;
+        // Pass the combined 'allMetrics' to the Dashboard
+        return <Dashboard metricPoint={allMetrics} />;
       case 'logs':
-        return <Logs serverId={serverId} token={token} />;
+        return <Logs serverId={serverId} />;
       case 'processes': 
-        return <ProcessList metricPoint={metrics} />;
+        // ProcessList can also use the combined data
+        return <ProcessList metricPoint={latestMetric?.processes || []} />;
       case 'disk':  
-        return <DiskUsage metricPoint={metrics} />; 
+        // DiskUsage can also use the combined data
+        return <DiskUsage metricPoint={latestMetric?.disk || []} />; 
       case "history":
           return <IncidentFeed serverId={serverId} />;
       default:
-        return <Dashboard metricPoint={metrics} />;
+        return <Dashboard metricPoint={allMetrics} />;
     }
   };
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
+      <RightSizingAdvisor 
+        serverId={serverId} 
+        isVisible={isAdvisorVisible}
+        onDismiss={() => setIsAdvisorVisible(false)}
+      />         
       {/* Main header bar with tabs and controls */}
       <div className="flex items-center justify-between px-4 pt-2">
         {/* Left side: Tab buttons */}
@@ -176,7 +243,16 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
         </div>
 
         {/* Right side: Status and Selectors */}
-        <div className="flex items-center space-x-4"> 
+        <div className="flex items-center space-x-4">
+          {hasActionableRecommendation && (
+            <button
+              onClick={() => setIsAdvisorVisible(!isAdvisorVisible)}
+              className="p-2 rounded-full bg-gray-800 hover:bg-gray-700 transition-colors"
+              title={isAdvisorVisible ? "Hide Recommendation" : "Show Recommendation"}
+            >
+              {isAdvisorVisible ? <LightbulbOff size={18} className="text-yellow-400" /> : <Lightbulb size={18} className="text-yellow-400 animate-pulse" />}
+            </button>
+          )}                      
           <div className="flex items-center space-x-2">
             <span className={`relative flex h-3 w-3`}>
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${systemStatus.bgColor} opacity-75`}></span>
@@ -214,7 +290,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
         {renderContent()}
       </div>  
 
-      {/* Add the Chat Popup Component Here */}
+      {/* Pass the combined 'latestMetric' to the Chat Popup */}
       <ChatPopup latestMetric={latestMetric} token={token} />
     </div>
   );

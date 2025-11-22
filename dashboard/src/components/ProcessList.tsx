@@ -1,5 +1,4 @@
 import React from 'react';
-import type { MetricPoint } from '../hooks/useMetrics';
 
 // Define interfaces for process data
 interface Process {
@@ -10,17 +9,14 @@ interface Process {
 }
 
 interface ProcessListProps {
-  metricPoint: MetricPoint[];
+  metricPoint: Process[];
 }
 
 const ProcessList: React.FC<ProcessListProps> = ({ metricPoint }) => {  
-  const metrics = metricPoint;  
+  const processes: Process[] = metricPoint;  
 
-  if (!metrics) return <p className="text-center p-8">No process data available.</p>;
-
-  const latestMetric = metrics[metrics.length - 1];
-  const processes: Process[] = latestMetric?.processes || [];
-
+  if (!metricPoint) return <p className="text-center p-8">No process data available.</p>;
+  
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold text-white mb-4">Top Processes</h1>

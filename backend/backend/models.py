@@ -1,5 +1,6 @@
 import enum
-from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, Text, func, Float, Boolean, Enum
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy import Column, FunctionElement, Integer, String, JSON, ForeignKey, DateTime, Text, func, Float, Boolean, Enum, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -39,6 +40,14 @@ class Server(Base):
     alert_rules = relationship("AlertRule", back_populates="server", cascade="all, delete-orphan")
     incidents = relationship("Incident", back_populates="server", cascade="all, delete-orphan")
     recommendations = relationship("Recommendation", back_populates="server", cascade="all, delete-orphan") # Add this line
+
+class time_bucket(FunctionElement):
+    name = "time_bucket"
+
+@compiles(time_bucket, "postgresql")
+def pg_time_bucket(element, compiler, **kw):
+    # The first argument is the interval, the second is the timestamp column
+    return f"time_bucket('{compiler.process(element.clauses.clauses[0])}', {compiler.process(element.clauses.clauses[1])})"
 
 class RecommendationType(str, enum.Enum):
     UPGRADE = "UPGRADE"
@@ -108,6 +117,10 @@ class Metric(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     server = relationship("Server", back_populates="metrics")
+
+    __table_args__ = (
+        Index("idx_metrics_server_timestamp", "server_id", "timestamp"),
+    )
 
 class Log(Base):
     __tablename__ = "logs"

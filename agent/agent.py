@@ -262,29 +262,33 @@ def collect_metrics(server_id):
         load_avg = "N/A"
 
     # --- Get Top 5 Processes by CPU ---
-    processes = []
-    for proc in sorted(psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']), key=lambda p: p.info['cpu_percent'], reverse=True)[:5]:
+    processes_with_metrics = []
+    for p in psutil.process_iter(['pid', 'name']):
         try:
-            proc.cpu_percent(interval=0.01)
-            time.sleep(0.01)
-            info = proc.info
-            info['cpu_percent'] = proc.cpu_percent()
-            processes.append(info)
+            # Get CPU usage over a small interval
+            p.info['cpu_percent'] = p.cpu_percent(interval=0.01)
+            # Get memory usage (instantaneous)
+            p.info['memory_percent'] = p.memory_percent()
+            processes_with_metrics.append(p.info)
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            # This gracefully handles processes that disappear during collection
             pass
 
-    # --- Get Top 5 Processes by RAM ---
-    processes = []
-    for proc in sorted(psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']), key=lambda p: p.info['memory_percent'], reverse=True)[:5]:
-        try:
-            proc.memory_percent(interval=0.01)
-            time.sleep(0.01)
-            info = proc.info
-            info['memory_percent'] = proc.memory_percent()
-            processes.append(info)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
+    # Sort by CPU and get top 5
+    top_cpu_processes = sorted(processes_with_metrics, key=lambda p: p.get('cpu_percent', 0), reverse=True)[:5]
 
+    # Sort by Memory and get top 5
+    top_mem_processes = sorted(processes_with_metrics, key=lambda p: p.get('memory_percent', 0), reverse=True)[:5]
+    
+    # --- Combine and de-duplicate the lists ---
+    combined_processes = {p['pid']: p for p in top_cpu_processes}
+    for p in top_mem_processes:
+        if p['pid'] not in combined_processes:
+            combined_processes[p['pid']] = p
+        # No 'else' needed, as the initial dict already contains the full info for top_cpu processes
+
+    processes = list(combined_processes.values())
+ 
     # Enhanced server details
     server_info = {
         "hostname": socket.gethostname(),

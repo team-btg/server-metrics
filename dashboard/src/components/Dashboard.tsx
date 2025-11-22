@@ -29,9 +29,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
-      {/* Header with reduced padding */}
-
-
+      {/* Header with reduced padding */} 
       <div className="p-4 space-y-4"> 
         <div className="flex justify-center">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4"> 
