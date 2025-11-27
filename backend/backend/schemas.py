@@ -15,6 +15,10 @@ class AlertOperator(str, enum.Enum):
     GREATER_THAN = ">"
     LESS_THAN = "<"
 
+class AlertRuleType(str, enum.Enum):
+    THRESHOLD = "THRESHOLD"
+    ANOMALY = "ANOMALY"
+
 class AlertRuleBase(BaseModel):
     name: str
     metric: AlertMetric
@@ -22,6 +26,7 @@ class AlertRuleBase(BaseModel):
     threshold: float
     duration_minutes: int = 5
     is_enabled: bool = True
+    type: AlertRuleType = AlertRuleType.THRESHOLD   
 
 class AlertRuleCreate(AlertRuleBase):
     pass
@@ -33,11 +38,13 @@ class AlertRuleUpdate(BaseModel):
     threshold: Optional[float] = None
     duration_minutes: Optional[int] = None
     is_enabled: Optional[bool] = None
+    type: Optional[AlertRuleType] = None
  
 class AlertRule(AlertRuleBase):
     id: int
     server_id: UUID
     
+    type: AlertRuleType
     model_config = ConfigDict(from_attributes=True)
 
 class Incident(BaseModel):

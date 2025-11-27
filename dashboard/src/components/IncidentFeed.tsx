@@ -14,6 +14,7 @@ interface AlertRule {
   metric: string;
   operator: string;
   threshold: number;
+  type: 'THRESHOLD' | 'ANOMALY';
 }
 
 interface Incident {
@@ -31,6 +32,7 @@ const fetchIncidents = async (serverId: string, token: string): Promise<Incident
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!response.ok) throw new Error('Failed to fetch incidents');
+  console.log('Fetched incidents:', await response.clone().json()); // Debug log
   return response.json();
 };
 
@@ -63,9 +65,13 @@ const IncidentCard: React.FC<{ incident: Incident; token: string }> = ({ inciden
       <div className="flex justify-between items-center">
         <div className="flex-1">
           <p className="font-bold text-lg text-white">{incident.alert_rule.name}</p>
-          <p className="text-sm text-gray-300">
-            Condition: {incident.alert_rule.metric.toUpperCase()} {incident.alert_rule.operator} {incident.alert_rule.threshold}%
-          </p>
+          {incident.alert_rule.type === 'THRESHOLD' ? (
+            <p className="text-sm text-gray-400">
+              {`Metric: ${incident.alert_rule.metric} ${incident.alert_rule.operator} ${incident.alert_rule.threshold}%`}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-400">Anomaly detection alert</p>
+          )}
           <p className="text-xs text-gray-400 mt-1">
             Triggered: {new Date(incident.triggered_at).toLocaleString()}
           </p>
@@ -115,7 +121,7 @@ const IncidentFeed: React.FC<IncidentFeedProps> = ({ serverId }) => {
   });
 
   if (isLoading) return <p className="text-center p-8 text-gray-400">Loading incident history...</p>;
-  if (error) return <p className="text-center p-8 text-red-500">Error: {error.message}</p>;
+  if (error) return <p className="text-center p-8 text-red-500">Error: {(error as Error).message}</p>;
 
   return (
     <div className="p-6">

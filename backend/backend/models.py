@@ -1,6 +1,6 @@
 import enum
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy import Column, FunctionElement, Integer, String, JSON, ForeignKey, DateTime, Text, func, Float, Boolean, Enum, Index
+from sqlalchemy import Column, FunctionElement, Integer, String, JSON, ForeignKey, DateTime, Text, func, Float, Boolean, Enum, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -67,6 +67,26 @@ class Recommendation(Base):
 
     server = relationship("Server", back_populates="recommendations")
 
+class MetricBaseline(Base):
+    __tablename__ = "metric_baselines"
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
+    metric_name = Column(String, nullable=False) # e.g., "cpu.percent", "mem.percent"
+     
+    hour_of_day = Column(Integer, nullable=False) 
+    
+    mean_value = Column(Float, nullable=False)
+    std_dev_value = Column(Float, nullable=False)
+     
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    server = relationship("Server")
+
+    __table_args__ = (
+        UniqueConstraint('server_id', 'metric_name', 'hour_of_day', name='_server_metric_hour_uc'),
+    )
+
 class AlertMetric(str, enum.Enum):
     CPU = "cpu"
     MEMORY = "memory"
@@ -75,6 +95,10 @@ class AlertMetric(str, enum.Enum):
 class AlertOperator(str, enum.Enum):
     GREATER_THAN = ">"
     LESS_THAN = "<"
+
+class AlertRuleType(str, enum.Enum):
+    THRESHOLD = "THRESHOLD"
+    ANOMALY = "ANOMALY"
 
 class AlertRule(Base):
     __tablename__ = "alert_rules"
@@ -88,7 +112,8 @@ class AlertRule(Base):
     is_enabled = Column(Boolean, default=True)
     
     server = relationship("Server")
-
+    type = Column(Enum(AlertRuleType), default=AlertRuleType.THRESHOLD, nullable=False)
+    
 class Incident(Base):
     __tablename__ = "incidents"
 
