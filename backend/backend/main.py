@@ -845,7 +845,9 @@ def run_incident_analysis(incident_id: UUID):
         db.close()
 
 # ========== METRICS ==========
-@app.get("/api/v1/metrics/history")
+metrics_router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
+
+@metrics_router.get("/history")
 def historical_metrics(
     server_id: str = Query(...),
     period: str = Query("1h", description="Time period, e.g., 15m, 1h, 6h, 24h"),
@@ -963,7 +965,7 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
         subscriber.delete_subscription(request={"subscription": subscription_path})
         print(f"[{server_id}] Cleanup complete.")
  
-@app.post("/api/v1/metrics")
+@metrics_router.post("/")
 async def post_metrics(
     payload: List[schemas.MetricIn],
     background_tasks: BackgroundTasks,
@@ -995,11 +997,11 @@ async def post_metrics(
         db.add(db_metric)
         accepted += 1
 
-        for metric in metrics_json:
-            name = metric.get("name")
-            value = metric.get("value")
-            if name in ["cpu.percent", "mem.percent"] and value is not None:
-                check_anomaly_and_alert(db, item.server_id, name, value, background_tasks)
+        # for metric in metrics_json:
+        #     name = metric.get("name")
+        #     value = metric.get("value")
+        #     if name in ["cpu.percent", "mem.percent"] and value is not None:
+        #         check_anomaly_and_alert(db, item.server_id, name, value, background_tasks)
 
         # Broadcast to WS
         data_to_publish = {
@@ -1023,6 +1025,27 @@ async def post_metrics(
     
     db.commit()
     return {"accepted": accepted}
+
+@metrics_router.get("/baselines/{server_id}")
+def get_baselines(
+    server_id: str,
+    metric: str = "cpu.percent",
+    db: Session = Depends(get_db)
+):
+    baselines = db.query(models.MetricBaseline).filter(
+        models.MetricBaseline.server_id == server_id,
+        models.MetricBaseline.metric_name == metric
+    ).order_by(models.MetricBaseline.hour_of_day).all()
+    return [
+        {
+            "hour": b.hour_of_day,
+            "mean": b.mean_value,
+            "stddev": b.std_dev_value
+        }
+        for b in baselines
+    ]
+
+app.include_router(metrics_router)
 
 def evaluate_alerts_for_server(server_id: UUID, db: Session, background_tasks: BackgroundTasks): # Add background_tasks
     server = db.query(models.Server).filter(models.Server.id == server_id).first()

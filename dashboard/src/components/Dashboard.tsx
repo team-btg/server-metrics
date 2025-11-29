@@ -17,15 +17,53 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, color }) =>
   </div>
 );
 
-interface DashboardProps {
-  metricPoint: MetricPoint[]; 
+interface BaselinePoint {
+  hour: number;
+  mean: number;
+  stddev: number;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
+interface DashboardProps {
+  metricPoint: MetricPoint[];
+  cpuBaseline?: BaselinePoint[];
+  ramBaseline?: BaselinePoint[];
+}
 
+export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline = [], ramBaseline = [] }) => {
+  const [showCpuBaseline, setShowCpuBaseline] = useState(true);
+  const [showRamBaseline, setShowRamBaseline] = useState(true);
   const [maximizedChart, setMaximizedChart] = useState<string | null>(null);
   const metrics = metricPoint; 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
+
+  // Map baseline to each metric point by hour for CPU
+  const cpuChartData = metricPoint.map((point) => {
+    const hour = new Date(point.timestamp).getUTCHours();
+    const baseline = cpuBaseline.find(b => b.hour === hour);
+    const mean = baseline?.mean ?? null;
+    const stddev = baseline?.stddev ?? null;
+    return {
+      ...point,
+      cpu_upper: mean !== null && stddev !== null ? mean + 3 * stddev : null,
+      cpu_lower: mean !== null && stddev !== null ? mean - 3 * stddev : null,
+    };
+  });
+ 
+  // Map baseline to each metric point by hour for RAM
+  const ramChartData = metricPoint.map((point) => {
+    const hour = new Date(point.timestamp).getUTCHours();
+    const baseline = ramBaseline.find(b => b.hour === hour);
+    const mean = baseline?.mean ?? null;
+    const stddev = baseline?.stddev ?? null;
+    return {
+      ...point,
+      ram_upper: mean !== null && stddev !== null ? mean + 3 * stddev : null,
+      ram_lower: mean !== null && stddev !== null ? mean - 3 * stddev : null,
+    };
+  });
+
+  console.log('CPU Chart Data with Baseline:', cpuChartData); // Debug log
+  console.log('RAM Chart Data with Baseline:', ramChartData); // Debug log
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
@@ -53,18 +91,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
       <div className="p-4 space-y-4">
         {/* Top charts: CPU + RAM */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* CPU Chart */}
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-semibold">CPU History</h2>
-              <button onClick={() => setMaximizedChart('cpu')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
-                {/* Smaller maximize icon */}
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
-                </svg>
-              </button>
+              <div>
+                <label className="text-xs mr-2">
+                  <input
+                    type="checkbox"
+                    checked={showCpuBaseline}
+                    onChange={e => setShowCpuBaseline(e.target.checked)}
+                  /> Show baseline
+                </label>
+                <button onClick={() => setMaximizedChart('cpu')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                  {/* Smaller maximize icon */}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <ResponsiveContainer width="100%" height={200}> 
-              <AreaChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> 
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={cpuChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                 <defs> 
                   <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"> 
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
@@ -99,22 +147,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
                   fillOpacity={1} 
                   fill="url(#colorCpu)" 
                 /> 
+                {showCpuBaseline && (
+                  <>
+                    <Line type="monotone" dataKey="cpu_upper" stroke="#a020f0" strokeDasharray="5 5" name="Upper Bound" dot={false} />
+                    <Line type="monotone" dataKey="cpu_lower" stroke="#a020f0" strokeDasharray="5 5" name="Lower Bound" dot={false} />
+                  </>
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
+          {/* RAM Chart */}
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-semibold">RAM History</h2>
-              <button onClick={() => setMaximizedChart('ram')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
-                {/* Smaller maximize icon */}
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
-                </svg>
-              </button>
+              <div>
+                <label className="text-xs mr-2">
+                  <input
+                    type="checkbox"
+                    checked={showRamBaseline}
+                    onChange={e => setShowRamBaseline(e.target.checked)}
+                  /> Show baseline
+                </label>
+                <button onClick={() => setMaximizedChart('ram')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                  {/* Smaller maximize icon */}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <ResponsiveContainer width="100%" height={200}> 
-              <AreaChart data={metrics} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> 
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={ramChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                 <defs>  
                   <linearGradient id="colorDisk" x1="0" y1="0" x2="0" y2="1">  
                     <stop offset="5%" stopColor="#70f76cff" stopOpacity={0.8}/>
@@ -150,6 +214,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint }) => {
                   fill="url(#colorMemory)"  
                   dot={false}
                 /> 
+                {showRamBaseline && (
+                  <>
+                    <Line type="monotone" dataKey="ram_upper" stroke="#a020f0" strokeDasharray="5 5" name="Upper Bound" dot={false} />
+                    <Line type="monotone" dataKey="ram_lower" stroke="#a020f0" strokeDasharray="5 5" name="Lower Bound" dot={false} />
+                  </>
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>

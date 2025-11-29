@@ -32,6 +32,15 @@ interface MainTabsProps {
   token?: string;
 }
 
+const fetchBaseline = async (serverId: string, metric: string, token?: string) => {
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/api/v1/metrics/baselines/${serverId}?metric=${metric}`,
+    token ? { headers: { 'Authorization': `Bearer ${token}` } } : undefined
+  );
+  if (!response.ok) throw new Error('Failed to fetch baseline');
+  return response.json();
+};
+
 const fetchActiveAlertCount = async (serverId: string, token: string): Promise<number> => {
   const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/events/servers/${serverId}/active_count`, {
     headers: { 'Authorization': `Bearer ${token}` },
@@ -52,6 +61,18 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
     queryFn: () => fetchActiveAlertCount(serverId, token || ''),
     enabled: !!token,  
     refetchInterval: 15000, // Refetch every 15 seconds
+  });
+
+  const { data: cpuBaseline = [] } = useQuery({
+    queryKey: ['cpuBaseline', serverId],
+    queryFn: () => fetchBaseline(serverId, 'cpu.percent', token),
+    enabled: !!serverId,
+  });
+
+  const { data: ramBaseline = [] } = useQuery({
+    queryKey: ['ramBaseline', serverId],
+    queryFn: () => fetchBaseline(serverId, 'mem.percent', token),
+    enabled: !!serverId,
   });
 
   const [isAdvisorVisible, setIsAdvisorVisible] = useState(true);
@@ -140,7 +161,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
     switch (tab) {
       case 'dashboard':
         // Pass the combined 'allMetrics' to the Dashboard
-        return <Dashboard metricPoint={allMetrics} />;
+        return <Dashboard metricPoint={allMetrics} cpuBaseline={cpuBaseline} ramBaseline={ramBaseline} />;
       case 'logs':
         return <Logs serverId={serverId} />;
       case 'processes': 
@@ -152,7 +173,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
       case "history":
           return <IncidentFeed serverId={serverId} />;
       default:
-        return <Dashboard metricPoint={allMetrics} />;
+        return <Dashboard metricPoint={allMetrics} cpuBaseline={cpuBaseline} ramBaseline={ramBaseline} />;
     }
   };
   return (
