@@ -36,21 +36,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
   const metrics = metricPoint; 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
 
-  // Map baseline to each metric point by hour for CPU
   const cpuChartData = metricPoint.map((point) => {
     const hour = new Date(point.timestamp).getUTCHours();
     const baseline = cpuBaseline.find(b => b.hour === hour);
     const mean = baseline?.mean ?? null;
     const stddev = baseline?.stddev ?? null;
-    const lower = mean !== null && stddev !== null ? mean - 3 * stddev : null;
+    const upper = mean !== null && stddev !== null ? +(mean + 3 * stddev).toFixed(1) : null;
+    const lowerRaw = mean !== null && stddev !== null ? mean - 3 * stddev : null;
+    const lower = lowerRaw !== null ? Math.max(0, lowerRaw) : null;
     return {
       ...point,
-      cpu_upper: mean !== null && stddev !== null ? mean + 3 * stddev : null,
-      cpu_lower: lower !== null ? Math.max(0, lower) : null, // Clamp to zero
+      cpu_upper: upper,
+      cpu_lower: lower !== null ? +lower.toFixed(1) : null,
     };
   });
- 
-  // Map baseline to each metric point by hour for RAM
+
   const ramChartData = metricPoint.map((point) => {
     const hour = new Date(point.timestamp).getUTCHours();
     const baseline = ramBaseline.find(b => b.hour === hour);
@@ -58,14 +58,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
     const stddev = baseline?.stddev ?? null;
     return {
       ...point,
-      ram_upper: mean !== null && stddev !== null ? mean + 3 * stddev : null,
-      ram_lower: mean !== null && stddev !== null ? mean - 3 * stddev : null,
+      ram_upper: mean !== null && stddev !== null ? +(mean + 3 * stddev).toFixed(1) : null,
+      ram_lower: mean !== null && stddev !== null ? +(mean - 3 * stddev).toFixed(1) : null,
     };
   });
-
-  console.log('CPU Chart Data with Baseline:', cpuChartData); // Debug log
-  console.log('RAM Chart Data with Baseline:', ramChartData); // Debug log
-
+  
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
       {/* Header with reduced padding */} 
@@ -369,7 +366,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
             onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold capitalize">{maximizedChart} History</h2>
+              {(maximizedChart === 'cpu' || maximizedChart === 'ram') && (
+                <h2 className="text-2xl font-bold capitalize">{maximizedChart.toUpperCase()} History</h2>
+              )}
+              {(maximizedChart === 'disk' || maximizedChart === 'network') && (
+                <h2 className="text-2xl font-bold capitalize">{maximizedChart} History</h2>
+              )}
               <button onClick={() => setMaximizedChart(null)} className="bg-transparent text-gray-400 hover:text-white focus:outline-none" title="Close">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -377,7 +379,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
             <ResponsiveContainer width="100%" height="100%">
               {/* Render the correct chart based on the state */}
               {maximizedChart === 'cpu' && (
-                <AreaChart data={metrics}>
+                <AreaChart data={cpuChartData}>
                   <defs><linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
                   <XAxis dataKey="timestamp" stroke="#a1a1aa" fontSize={12} tickFormatter={(ts) => new Date(ts).toLocaleTimeString()} />
@@ -388,10 +390,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
                     labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
                   />                   
                 <Area type="monotone" dataKey="cpu" stroke="#06b6d4" fill="url(#colorCpu)" />
+                {showCpuBaseline && (
+                  <>
+                    <Line type="monotone" dataKey="cpu_lower" stroke="#a020f0" strokeDasharray="5 5" name="Lower Bound" dot={false} />
+                    <Line type="monotone" dataKey="cpu_upper" stroke="#a020f0" strokeDasharray="5 5" name="Upper Bound" dot={false} />
+                  </>
+                )}
                 </AreaChart>
               )}
               {maximizedChart === 'ram' && (
-                 <AreaChart data={metrics}>
+                 <AreaChart data={ramChartData}>
                   <defs><linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#70f76cff" stopOpacity={0.8}/><stop offset="95%" stopColor="#70f76cff" stopOpacity={0}/></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#444444" />
                   <XAxis dataKey="timestamp" stroke="#a1a1aa" fontSize={12} tickFormatter={(ts) => new Date(ts).toLocaleTimeString()} />
@@ -402,6 +410,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
                     labelFormatter={(label) => `Time: ${new Date(label).toLocaleTimeString()}`}
                   /> 
                   <Area type="monotone" dataKey="memory" stroke="#70f76cff" fill="url(#colorMemory)" />
+                  {showRamBaseline && (
+                    <>
+                      <Line type="monotone" dataKey="ram_lower" stroke="#a020f0" strokeDasharray="5 5" name="Lower Bound" dot={false} />
+                      <Line type="monotone" dataKey="ram_upper" stroke="#a020f0" strokeDasharray="5 5" name="Upper Bound" dot={false} />
+                    </>
+                  )}
                 </AreaChart>
               )}
               {maximizedChart === 'disk' && (
