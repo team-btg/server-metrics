@@ -1153,11 +1153,18 @@ def check_anomaly_and_alert(db, server_id, metric_name, metric_value, background
     if not baseline or baseline.std_dev_value == 0:
         return
 
+    metric_map = {
+        "cpu.percent": "cpu",
+        "mem.percent": "memory",
+        "disk": "disk"
+    }
+    alert_metric = metric_map.get(metric_name, metric_name)
+    
     alert_rule = db.query(models.AlertRule).filter_by(
         server_id=server_id,
-        metric_name=metric_name,
+        metric=alert_metric,
         type=models.AlertRuleType.ANOMALY,
-        is_active=True
+        is_enabled=True
     ).first()
     if not alert_rule:
         return
