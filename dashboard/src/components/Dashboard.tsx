@@ -42,10 +42,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
     const baseline = cpuBaseline.find(b => b.hour === hour);
     const mean = baseline?.mean ?? null;
     const stddev = baseline?.stddev ?? null;
+    const lower = mean !== null && stddev !== null ? mean - 3 * stddev : null;
     return {
       ...point,
       cpu_upper: mean !== null && stddev !== null ? mean + 3 * stddev : null,
-      cpu_lower: mean !== null && stddev !== null ? mean - 3 * stddev : null,
+      cpu_lower: lower !== null ? Math.max(0, lower) : null, // Clamp to zero
     };
   });
  
