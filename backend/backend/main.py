@@ -997,11 +997,11 @@ async def post_metrics(
         db.add(db_metric)
         accepted += 1
 
-        # for metric in metrics_json:
-        #     name = metric.get("name")
-        #     value = metric.get("value")
-        #     if name in ["cpu.percent", "mem.percent"] and value is not None:
-        #         check_anomaly_and_alert(db, item.server_id, name, value, background_tasks)
+        for metric in metrics_json:
+            name = metric.get("name")
+            value = metric.get("value")
+            if name in ["cpu.percent", "mem.percent"] and value is not None:
+                check_anomaly_and_alert(db, item.server_id, name, value, background_tasks)
 
         # Broadcast to WS
         data_to_publish = {
@@ -1143,7 +1143,7 @@ def evaluate_alerts_for_server(server_id: UUID, db: Session, background_tasks: B
             if server.webhook_url and server.webhook_format:
                 send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=False, headers=server.webhook_headers)
 
-def check_anomaly_and_alert(db, server_id: UUID, metric_name, metric_value, background_tasks: BackgroundTasks = None):
+def check_anomaly_and_alert(db, server_id, metric_name, metric_value, background_tasks=None):
     hour = datetime.utcnow().hour
     baseline = db.query(models.MetricBaseline).filter_by(
         server_id=server_id,
@@ -1151,88 +1151,83 @@ def check_anomaly_and_alert(db, server_id: UUID, metric_name, metric_value, back
         hour_of_day=hour
     ).first()
     if not baseline or baseline.std_dev_value == 0:
-        print(f"No baseline for {metric_name} on server {server_id} at hour {hour}")
-        return  # Not enough data for anomaly detection
-
-    metric_map = {
-        "cpu.percent": "cpu",
-        "mem.percent": "memory",
-        "disk": "disk"
-    }
-    alert_metric = metric_map.get(metric_name, metric_name)
+        return
 
     alert_rule = db.query(models.AlertRule).filter_by(
         server_id=server_id,
-        metric=alert_metric,
+        metric_name=metric_name,
         type=models.AlertRuleType.ANOMALY,
-        is_enabled=True
+        is_active=True
     ).first()
     if not alert_rule:
         return
 
-    # Check if an anomaly incident is already active
-    active_incident = (
-        db.query(models.Incident)
-        .join(models.AlertRule, models.Incident.alert_rule_id == models.AlertRule.id)
-        .filter(
-            models.Incident.alert_rule_id == alert_rule.id,
-            models.AlertRule.type == models.AlertRuleType.ANOMALY,
-            models.Incident.resolved_at == None
-        )
-        .first()
-)
+    cooldown_minutes = 5
+    now = datetime.utcnow()
+
+    # Check for recent active incident (cooldown)
+    recent_incident = db.query(models.Incident).filter(
+        models.Incident.alert_rule_id == alert_rule.id,
+        models.Incident.status == "Active",
+        models.Incident.triggered_at >= now - timedelta(minutes=cooldown_minutes)
+    ).first()
 
     # 3-sigma rule
     is_anomaly = abs(metric_value - baseline.mean_value) > 3 * baseline.std_dev_value
 
-    if is_anomaly and not active_incident:
-        # Create Incident
+    if is_anomaly and not recent_incident:
         incident = models.Incident(
             server_id=server_id,
             alert_rule_id=alert_rule.id,
             status="Active",
-            triggered_at=datetime.utcnow(),
+            triggered_at=now,
             summary=f"Anomaly detected: {metric_name}={metric_value:.2f} (expected {baseline.mean_value:.2f}±{baseline.std_dev_value:.2f})"
         )
         db.add(incident)
         db.commit()
 
-        # AI SRE analysis
-        if background_tasks:
-            background_tasks.add_task(run_incident_analysis, incident.id)
-
-        # Notification
         subject = f"🚨 Anomaly Detected: {metric_name} on {alert_rule.server.hostname}"
         body = f"Anomaly detected for {metric_name} on server '{alert_rule.server.hostname}'.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nAn incident has been created and is being analyzed."
-        send_email_notification(alert_rule.server.owner.email, subject, body)
-        if alert_rule.server.webhook_url and alert_rule.server.webhook_format:
-            send_webhook_notification(
-                alert_rule.server.webhook_url,
-                alert_rule.server.webhook_format,
-                subject,
-                body,
-                is_firing=True,
-                headers=alert_rule.server.webhook_headers
-            )
 
-    elif not is_anomaly and active_incident:
-        # Resolve Incident
-        active_incident.status = "resolved"
-        active_incident.resolved_at = datetime.utcnow()
-        db.commit()
+        # Run notifications and AI analysis in background
+        if background_tasks:
+            background_tasks.add_task(run_incident_analysis, incident.id)
+            background_tasks.add_task(send_email_notification, alert_rule.server.owner.email, subject, body)
+            if alert_rule.server.webhook_url and alert_rule.server.webhook_format:
+                background_tasks.add_task(
+                    send_webhook_notification,
+                    alert_rule.server.webhook_url,
+                    alert_rule.server.webhook_format,
+                    subject,
+                    body,
+                    True,
+                    alert_rule.server.webhook_headers
+                ) 
+    elif not is_anomaly:
+        active_incident = db.query(models.Incident).filter(
+            models.Incident.alert_rule_id == alert_rule.id,
+            models.Incident.status == "Active",
+            models.Incident.resolved_at == None
+        ).first()
+        if active_incident:
+            active_incident.status = "resolved"
+            active_incident.resolved_at = now
+            db.commit()
 
-        subject = f"✅ Anomaly Resolved: {metric_name} on {alert_rule.server.hostname}"
-        body = f"The anomaly for {metric_name} on server '{alert_rule.server.hostname}' has resolved.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nThe system has returned to normal."
-        send_email_notification(alert_rule.server.owner.email, subject, body)
-        if alert_rule.server.webhook_url and alert_rule.server.webhook_format:
-            send_webhook_notification(
-                alert_rule.server.webhook_url,
-                alert_rule.server.webhook_format,
-                subject,
-                body,
-                is_firing=False,
-                headers=alert_rule.server.webhook_headers
-            )
+            subject = f"✅ Anomaly Resolved: {metric_name} on {alert_rule.server.hostname}"
+            body = f"The anomaly for {metric_name} on server '{alert_rule.server.hostname}' has resolved.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nThe system has returned to normal."
+            if background_tasks:
+                background_tasks.add_task(send_email_notification, alert_rule.server.owner.email, subject, body)
+                if alert_rule.server.webhook_url and alert_rule.server.webhook_format:
+                    background_tasks.add_task(
+                        send_webhook_notification,
+                        alert_rule.server.webhook_url,
+                        alert_rule.server.webhook_format,
+                        subject,
+                        body,
+                        False,
+                        alert_rule.server.webhook_headers
+                    )
             
 # ========== LOGS ==========
 @app.websocket("/api/v1/ws/logs")
