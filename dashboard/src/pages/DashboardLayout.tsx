@@ -1,31 +1,30 @@
 import React, { useState, useEffect } from "react";
 import { MainTabs } from "../components/MainTabs"; 
-import Sidebar from '../components/Sidebar';
-import SettingsModal from '../components/SettingsModal'; // Import the new modal
-import { Server, PlusCircle, X, LogOut, Settings } from 'lucide-react'; // Add Settings icon
+import SettingsModal from '../components/SettingsModal';
+import { X } from 'lucide-react'; 
 import { useAuth } from "../context/AuthContext";
-import AppFooter from '../components/Footer'; // Import the new footer
+import TopBarLayout from '../components/navigations/TopBar';
+import AppFooter from '../components/navigations/Footer';
 
 interface ServerInfo {
   id: string;
   hostname: string;
-} 
+}
 
 const DashboardLayout: React.FC = () => {
-  const { token, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isSidebarMinimized, setIsSidebarMinimized] = useState(false); 
+  const { token, logout } = useAuth(); 
+
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
-  
-  // State for modals
+ 
   const [isClaiming, setIsClaiming] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // <-- State for settings modal
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [claimServerId, setClaimServerId] = useState('');
   const [claimApiKey, setClaimApiKey] = useState('');
   const [claimError, setClaimError] = useState('');
 
+  // Fetch servers on component mount or token change
   useEffect(() => {
     if (token) {
       fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers`, {
@@ -35,21 +34,27 @@ const DashboardLayout: React.FC = () => {
       })
       .then(res => {
         if (res.status === 401) {
-          // If token is invalid, log the user out
           logout();
           return [];
         }
         return res.json();
       })
       .then((data: ServerInfo[]) => {
-        setServers(data);
-        if (data.length > 0 && !selectedServerId) {
-          setSelectedServerId(data[0].id);
-        }
+        setServers(data); 
       })
       .catch(err => console.error("Failed to fetch servers:", err));
     }
   }, [token, logout]);
+
+  // Callback for when a server is selected from the TopBar dropdown
+  const handleServerSelect = (serverId: string) => {
+    setSelectedServerId(serverId);
+  };
+
+  // Handlers for TopBar actions
+  const handleAddServer = () => setIsClaiming(true);
+  const handleOpenSettings = () => setIsSettingsOpen(true);
+  const handleLogout = () => logout();
 
   const handleClaimServer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +62,7 @@ const DashboardLayout: React.FC = () => {
 
     if (!token) {
       setClaimError("You are not logged in. Please log in again.");
-      logout(); 
+      logout();
       return;
     }
 
@@ -72,10 +77,10 @@ const DashboardLayout: React.FC = () => {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Claim failed. Check your Server ID and API Key.');
       }
-      
+ 
       const newServer: ServerInfo = await response.json(); 
       setServers(prev => [...prev, newServer]);
-      setSelectedServerId(newServer.id); 
+      setSelectedServerId(newServer.id);
       setIsClaiming(false);
       setClaimServerId('');
       setClaimApiKey('');
@@ -85,71 +90,31 @@ const DashboardLayout: React.FC = () => {
     }
   };
 
-return (
-    <div className="h-screen flex bg-[#0f172a]">
-      <Sidebar 
-        isOpen={sidebarOpen} 
-        setIsOpen={setSidebarOpen}
-        isMinimized={isSidebarMinimized}
-        setIsMinimized={setIsSidebarMinimized}
-      >
-        <div className="flex flex-col h-full">
-          {/* Server List (make this scrollable if the list gets too long) */}
-          <div className="flex-grow px-2 py-4 space-y-2 overflow-y-auto">
-            <h3 className={`px-4 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase ${isSidebarMinimized ? 'hidden' : 'block'}`}>
-              Servers
-            </h3>
-            {servers.map(server => (
-              <button key={server.id} onClick={() => setSelectedServerId(server.id)} className={`w-full flex items-center p-2 space-x-3 rounded-md transition-colors ${selectedServerId === server.id ? 'bg-blue-600 text-white' : 'text-gray-300 bg-gray-700'}`}>
-                <Server size={20} />
-                {!isSidebarMinimized && <span>{server.hostname}</span>}
-              </button>
-            ))}
-            <button onClick={() => setIsClaiming(true)} className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 bg-green-900 transition-colors`}>
-              <PlusCircle size={20} />
-              {!isSidebarMinimized && <span>Add Server</span>}
-            </button>
-          </div>
-
-          {/* Settings and Logout Button Section */}
-          <div className="px-2 py-4 border-t border-gray-700 space-y-2">
-            <button 
-              onClick={() => setIsSettingsOpen(true)}
-              disabled={!selectedServerId} // Disable if no server is selected
-              className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 transition-colors ${
-                !selectedServerId ? 'cursor-not-allowed opacity-50' : 'bg-gray-700'
-              }`}
-            >
-              <Settings size={20} />
-              {!isSidebarMinimized && <span>Settings</span>}
-            </button>
-            <button 
-              onClick={logout} 
-              className={`w-full flex items-center p-2 space-x-3 rounded-md text-gray-300 bg-red-600 hover:text-white transition-colors`}
-            >
-              <LogOut size={20} />
-              {!isSidebarMinimized && <span>Logout</span>}
-            </button>
-          </div>
-        </div>
-      </Sidebar>
-
-      {/* Make the main content area the scrollable part */}
-      <main className="flex-1 text-gray-200 overflow-y-auto relative">
+  return (
+    <TopBarLayout
+      servers={servers}
+      onServerSelect={handleServerSelect}
+      onAddServer={handleAddServer}
+      onSettings={handleOpenSettings}
+      onLogout={handleLogout}
+      selectedServerId={selectedServerId}
+    >
+      {/* The content that used to be next to the Sidebar, now inside TopBarLayout's children */}
+      <main className="flex-1 text-gray-200 overflow-y-auto relative p-4"> {/* Added p-4 here */}
         {selectedServerId ? (
           <MainTabs serverId={selectedServerId} token={token || ""} />
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <h2 className="text-2xl font-semibold">No Servers Found</h2>
-              <p className="text-gray-400">Click "Add Server" in the sidebar to claim your first agent.</p>
+              <h2 className="text-2xl font-semibold">Please Select a Server</h2>
+              <p className="text-gray-400">Choose a server from the dropdown above to view its dashboard, or click "Add Server" to claim a new one.</p>
             </div>
           </div>
         )}
         <AppFooter />
       </main>
 
-      {/* Modals are now rendered here */}
+      {/* Modals remain here */}
       {isClaiming && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-[#1e293b] p-6 rounded-lg shadow-xl max-w-md w-full relative">
@@ -175,16 +140,16 @@ return (
           </div>
         </div>
       )}
-      
+
       {selectedServerId && (
-        <SettingsModal 
+        <SettingsModal
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
           serverId={selectedServerId}
           token={token || ''}
         />
       )}
-    </div>
+    </TopBarLayout>
   );
 };
 

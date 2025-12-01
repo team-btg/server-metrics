@@ -32,7 +32,6 @@ const fetchIncidents = async (serverId: string, token: string): Promise<Incident
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!response.ok) throw new Error('Failed to fetch incidents');
-  console.log('Fetched incidents:', await response.clone().json()); // Debug log
   return response.json();
 };
 
