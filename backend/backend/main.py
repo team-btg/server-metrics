@@ -13,6 +13,7 @@ from . import crud, security
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware  
+from starlette.concurrency import run_in_threadpool  
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from sqlalchemy.exc import IntegrityError
@@ -893,21 +894,21 @@ def historical_metrics(
  
 @app.websocket("/api/v1/ws/metrics")
 async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: Optional[str] = Query(None)):
-    # ... (authentication logic remains the same) ...
+
     await websocket.accept()
 
-    # --- NEW PUBSUB LISTENER WITH ASYNCIO QUEUE ---
     subscriber = pubsub_v1.SubscriberClient()
     subscription_name = f"ws-metrics-sub-{secrets.token_hex(8)}"
     subscription_path = subscriber.subscription_path(PROJECT_ID, subscription_name)
     topic_path = publisher.topic_path(PROJECT_ID, "metrics-broadcast")
     filter_string = f'attributes.server_id = "{server_id}"'
 
-    try:
-        subscriber.create_subscription(
+    try: 
+        await asyncio.to_thread(
+            subscriber.create_subscription,
             request={
-                "name": subscription_path, 
-                "topic": topic_path, 
+                "name": subscription_path,
+                "topic": topic_path,
                 "expiration_policy": {"ttl": "86400s"},
                 "filter": filter_string,
             }
@@ -915,11 +916,8 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
     except Exception as e:
         print(f"Could not create subscription (it might already exist): {e}")
 
-    # 1. Create a queue to bridge the Pub/Sub thread and the asyncio event loop
     queue = asyncio.Queue()
 
-    # 2. This is a SYNCHRONOUS callback that the Pub/Sub client can call directly.
-    #    Its only job is to put the message into the queue.
     def sync_callback(message: pubsub_v1.subscriber.message.Message):
         try:
             data = json.loads(message.data.decode("utf-8"))
@@ -929,17 +927,13 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
             print(f"Error in sync_callback: {e}")
             message.nack()
 
-    # 3. Start listening for messages in the background, using the sync callback
-    streaming_pull_future = subscriber.subscribe(subscription_path, callback=sync_callback)
+    streaming_pull_future = await asyncio.to_thread(subscriber.subscribe, subscription_path, callback=sync_callback)
     print(f"[{server_id}] Subscribed to {subscription_path} and listening...")
 
-    # 4. This async task runs in the main event loop, waiting for data from the queue
     async def forward_to_websocket():
         while True:
             try:
-                # Wait for a message to appear in the queue
                 data = await queue.get()
-                # Send the message over the websocket
                 await websocket.send_json(data)
                 queue.task_done()
             except asyncio.CancelledError:
@@ -952,19 +946,17 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
     forwarder_task = asyncio.create_task(forward_to_websocket())
 
     try:
-        # Keep the connection open and wait for the client to disconnect
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         print(f"[{server_id}] WebSocket disconnected.")
     finally:
-        # 5. Clean up everything when the client disconnects
         print(f"[{server_id}] Cleaning up resources...")
         forwarder_task.cancel()
-        streaming_pull_future.cancel()  # Stop the Pub/Sub listener
-        subscriber.delete_subscription(request={"subscription": subscription_path})
+        streaming_pull_future.cancel() 
+        await asyncio.to_thread(subscriber.delete_subscription, request={"subscription": subscription_path})
         print(f"[{server_id}] Cleanup complete.")
- 
+
 @metrics_router.post("/")
 async def post_metrics(
     payload: List[schemas.MetricIn],
@@ -973,37 +965,43 @@ async def post_metrics(
     db: Session = Depends(get_db),
 ):
     accepted = 0
-    for item in payload: 
+
+    db_metrics_to_add = []
+    anomaly_checks_info = []
+
+    for item in payload:
         if str(item.server_id) != str(server_uuid.id):
             raise HTTPException(status_code=403, detail="server_id mismatch")
-   
+
         metrics_json = [
             m if isinstance(m, dict) else m.model_dump() if hasattr(m, "model_dump") else m.dict()
             for m in item.metrics
         ]
- 
+
         metrics_processes_json = [
             p if isinstance(p, dict) else p.model_dump() if hasattr(p, "model_dump") else p.dict()
             for p in (item.processes or [])
         ]
-  
+
         db_metric = models.Metric(
             server_id=item.server_id,
             timestamp=item.timestamp,
-            metrics=metrics_json, 
+            metrics=metrics_json,
             processes=metrics_processes_json,
             meta=item.meta or {},
         )
-        db.add(db_metric)
-        accepted += 1
+        db_metrics_to_add.append(db_metric)
 
         for metric in metrics_json:
             name = metric.get("name")
             value = metric.get("value")
             if name in ["cpu.percent", "mem.percent"] and value is not None:
-                check_anomaly_and_alert(db, item.server_id, name, value, background_tasks)
+                anomaly_checks_info.append({
+                    "server_id": item.server_id,
+                    "metric_name": name,
+                    "metric_value": value,
+                })
 
-        # Broadcast to WS
         data_to_publish = {
             "type": "metric",
             "data": jsonable_encoder({
@@ -1015,15 +1013,30 @@ async def post_metrics(
             })
         }
         
-        publisher.publish(
-            topic_path, 
+        await asyncio.to_thread(
+            publisher.publish,
+            topic_path,
             data=json.dumps(data_to_publish).encode("utf-8"),
-            server_id=str(item.server_id) # Attribute for filtering
+            server_id=str(item.server_id)
         )
 
-    evaluate_alerts_for_server(server_uuid.id, db, background_tasks) # Pass background_tasks 
-    
-    db.commit()
+    db.add_all(db_metrics_to_add)
+    await asyncio.to_thread(db.commit) 
+
+    for check_info in anomaly_checks_info:
+        background_tasks.add_task(
+            _check_anomaly_and_alert_in_background,
+            check_info["server_id"],
+            check_info["metric_name"],
+            check_info["metric_value"],
+        )
+
+    background_tasks.add_task(
+        _evaluate_alerts_for_server_in_background,
+        server_uuid.id,
+    )
+
+    accepted = len(db_metrics_to_add)
     return {"accepted": accepted}
 
 @metrics_router.get("/baselines/{server_id}")
@@ -1046,203 +1059,214 @@ def get_baselines(
     ]
 
 app.include_router(metrics_router)
-
-def evaluate_alerts_for_server(server_id: UUID, db: Session, background_tasks: BackgroundTasks): # Add background_tasks
-    server = db.query(models.Server).filter(models.Server.id == server_id).first()
-    if not server or not server.user_id:
-        return  # Can't notify if there's no owner
-
-    rules = db.query(models.AlertRule).filter(
-        models.AlertRule.server_id == server_id,
-        models.AlertRule.type == models.AlertRuleType.THRESHOLD,
-        models.AlertRule.is_enabled == True
-    ).all()
-
-    for rule in rules:
-        start_time = datetime.utcnow() - timedelta(minutes=rule.duration_minutes)
-        
-        # Get recent metrics for the rule's duration
-        recent_metrics = db.query(models.Metric).filter(
-            models.Metric.server_id == server_id,
-            models.Metric.timestamp >= start_time
-        ).order_by(desc(models.Metric.timestamp)).all()
-
-        if len(recent_metrics) == 0:
-            continue  
-
-        # Check if the condition is consistently met
-        is_violated = True
-        for metric_record in recent_metrics:
-            metric_value = None
-             
-            if rule.metric == 'cpu':
-                metric_value = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'cpu.percent'), None)
-            elif rule.metric == 'memory':
-                metric_value = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'mem.percent'), None)
-            elif rule.metric == 'disk':
-                disk_metrics = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'disk'), None)
-                if disk_metrics and isinstance(disk_metrics, list):
-                    root_disk = next((d for d in disk_metrics if d.get('mountpoint') == '/'), None)
-                    if root_disk:
-                        metric_value = root_disk.get('percent')
-
-            if metric_value is None:
-                is_violated = False
-                break
-            
-            if rule.operator == '>' and not (metric_value > rule.threshold):
-                is_violated = False
-                break
-            if rule.operator == '<' and not (metric_value < rule.threshold):
-                is_violated = False
-                break
-
-        # Check if an alert is already active for this rule
-        active_event = (
-            db.query(models.Incident)
-            .join(models.AlertRule, models.Incident.alert_rule_id == models.AlertRule.id) 
-            .filter(
-                models.Incident.alert_rule_id == rule.id,
-                models.AlertRule.type == models.AlertRuleType.THRESHOLD,
-                models.Incident.resolved_at == None
-            ).first()
-        )
-
-        if is_violated and not active_event: 
-            print(f"TRIGGERING alert for rule '{rule.name}' on server '{server.hostname}'")
-              
-            new_incident = crud.create_incident(db=db, server_id=server.id, alert_rule_id=rule.id)
  
-            background_tasks.add_task(run_incident_analysis, new_incident.id)
- 
-            subject = f"🚨 Alert Firing: {rule.name} on {server.hostname}"
-            body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes.\n\nAn incident has been created and is being analyzed."
-            send_email_notification(server.owner.email, subject, body)
-            if server.webhook_url and server.webhook_format:
-                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True, headers=server.webhook_headers)
-
-        elif not is_violated and active_event: 
-            print(f"RESOLVING alert for rule '{rule.name}' on server '{server.hostname}'")
-         
-            active_event.resolved_at = datetime.utcnow()
-
-            incident_to_resolve = db.query(models.Incident).filter(
-                models.Incident.alert_rule_id == rule.id,
-                models.Incident.status != 'resolved'
-            ).order_by(desc(models.Incident.triggered_at)).first()
-
-            if incident_to_resolve:
-                incident_to_resolve.status = 'resolved'
-                incident_to_resolve.resolved_at = datetime.utcnow()
-
-            db.commit()
-         
-            subject = f"✅ Alert Resolved: {rule.name} on {server.hostname}"
-            body = f"The alert '{rule.name}' has been resolved.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThe system has returned to a normal state."
-            send_email_notification(server.owner.email, subject, body)
-            if server.webhook_url and server.webhook_format:
-                send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=False, headers=server.webhook_headers)
-
-def check_anomaly_and_alert(db, server_id, metric_name, metric_value, background_tasks=None):
-    hour = datetime.utcnow().hour
-    baseline = db.query(models.MetricBaseline).filter_by(
-        server_id=server_id,
-        metric_name=metric_name,
-        hour_of_day=hour
-    ).first()
-    if not baseline or baseline.std_dev_value == 0:
-        return
-
-    metric_map = {
-        "cpu.percent": "cpu",
-        "mem.percent": "memory",
-        "disk": "disk"
-    }
-    alert_metric = metric_map.get(metric_name, metric_name)
-    
-    alert_rule = db.query(models.AlertRule).filter_by(
-        server_id=server_id,
-        metric=alert_metric,
-        type=models.AlertRuleType.ANOMALY,
-        is_enabled=True
-    ).first()
-    if not alert_rule:
-        return
-
-    cooldown_minutes = 5
-    now = datetime.utcnow()
-
-    # Check for recent active incident (cooldown)
-    recent_incident = db.query(models.Incident).filter(
-        models.Incident.alert_rule_id == alert_rule.id,
-        models.Incident.status == "Active",
-        models.Incident.triggered_at >= now - timedelta(minutes=cooldown_minutes)
-    ).first()
-
-    # 3-sigma rule
-    is_anomaly = abs(metric_value - baseline.mean_value) > 3 * baseline.std_dev_value
-
-    if is_anomaly and not recent_incident:
-        incident = models.Incident(
+def _check_anomaly_and_alert_in_background(server_id, metric_name, metric_value):
+    db: Session = Depends(get_db)
+    try: 
+        hour = datetime.utcnow().hour
+        baseline = db.query(models.MetricBaseline).filter_by(
             server_id=server_id,
-            alert_rule_id=alert_rule.id,
-            status="Active",
-            triggered_at=now,
-            summary=f"Anomaly detected: {metric_name}={metric_value:.2f} (expected {baseline.mean_value:.2f}±{baseline.std_dev_value:.2f})"
-        )
-        db.add(incident)
-        db.commit()
+            metric_name=metric_name,
+            hour_of_day=hour
+        ).first()
+        if not baseline or baseline.std_dev_value == 0:
+            return
 
-        subject = f"🚨 Anomaly Detected: {metric_name} on {alert_rule.server.hostname}"
-        body = f"Anomaly detected for {metric_name} on server '{alert_rule.server.hostname}'.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nAn incident has been created and is being analyzed."
+        metric_map = {
+            "cpu.percent": "cpu",
+            "mem.percent": "memory",
+            "disk": "disk"
+        }
+        alert_metric = metric_map.get(metric_name, metric_name)
+        
+        alert_rule = db.query(models.AlertRule).filter_by(
+            server_id=server_id,
+            metric=alert_metric,
+            type=models.AlertRuleType.ANOMALY,
+            is_enabled=True
+        ).first()
+        if not alert_rule:
+            return
 
-        # Run notifications and AI analysis in background
-        if background_tasks:
-            background_tasks.add_task(run_incident_analysis, incident.id)
-            background_tasks.add_task(send_email_notification, alert_rule.server.owner.email, subject, body)
+        cooldown_minutes = 5
+        now = datetime.utcnow()
+
+        recent_incident = db.query(models.Incident).filter(
+            models.Incident.alert_rule_id == alert_rule.id,
+            models.Incident.status == "Active",
+            models.Incident.triggered_at >= now - timedelta(minutes=cooldown_minutes)
+        ).first()
+
+        is_anomaly = abs(metric_value - baseline.mean_value) > 3 * baseline.std_dev_value
+
+        if is_anomaly and not recent_incident:
+            incident = models.Incident(
+                server_id=server_id,
+                alert_rule_id=alert_rule.id,
+                status="Active",
+                triggered_at=now,
+                summary=f"Anomaly detected: {metric_name}={metric_value:.2f} (expected {baseline.mean_value:.2f}±{baseline.std_dev_value:.2f})"
+            )
+            db.add(incident)
+            db.commit()
+
+            subject = f"🚨 Anomaly Detected: {metric_name} on {alert_rule.server.hostname}"
+            body = f"Anomaly detected for {metric_name} on server '{alert_rule.server.hostname}'.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nAn incident has been created and is being analyzed."
+
+            run_incident_analysis(incident.id)
+            send_email_notification(alert_rule.server.owner.email, subject, body)
             if alert_rule.server.webhook_url and alert_rule.server.webhook_format:
-                background_tasks.add_task(
-                    send_webhook_notification,
+                send_webhook_notification(
                     alert_rule.server.webhook_url,
                     alert_rule.server.webhook_format,
                     subject,
                     body,
                     True,
                     alert_rule.server.webhook_headers
-                ) 
-    elif not is_anomaly:
-        active_incident = db.query(models.Incident).filter(
-            models.Incident.alert_rule_id == alert_rule.id,
-            models.Incident.status == "Active",
-            models.Incident.resolved_at == None
-        ).first()
-        if active_incident:
-            active_incident.status = "resolved"
-            active_incident.resolved_at = now
-            db.commit()
+                )
+        elif not is_anomaly:
+            active_incident = db.query(models.Incident).filter(
+                models.Incident.alert_rule_id == alert_rule.id,
+                models.Incident.status == "Active",
+                models.Incident.resolved_at == None
+            ).first()
+            if active_incident:
+                active_incident.status = "resolved"
+                active_incident.resolved_at = now
+                db.commit()  
 
-            subject = f"✅ Anomaly Resolved: {metric_name} on {alert_rule.server.hostname}"
-            body = f"The anomaly for {metric_name} on server '{alert_rule.server.hostname}' has resolved.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nThe system has returned to normal."
-            if background_tasks:
-                background_tasks.add_task(send_email_notification, alert_rule.server.owner.email, subject, body)
+                subject = f"✅ Anomaly Resolved: {metric_name} on {alert_rule.server.hostname}"
+                body = f"The anomaly for {metric_name} on server '{alert_rule.server.hostname}' has resolved.\n\nValue: {metric_value:.2f}\nExpected: {baseline.mean_value:.2f} ± {baseline.std_dev_value:.2f}\n\nThe system has returned to normal."
+                send_email_notification(alert_rule.server.owner.email, subject, body)
                 if alert_rule.server.webhook_url and alert_rule.server.webhook_format:
-                    background_tasks.add_task(
-                        send_webhook_notification,
+                    send_webhook_notification(
                         alert_rule.server.webhook_url,
                         alert_rule.server.webhook_format,
                         subject,
                         body,
                         False,
                         alert_rule.server.webhook_headers
-                    )
+                    ) 
+    finally:
+        db.close()
+
+def _evaluate_alerts_for_server_in_background(server_id):
+    db: Session = Depends(get_db)
+    try: 
+        server = db.query(models.Server).filter(models.Server.id == server_id).first()
+        if not server or not server.user_id:
+            return
+
+        rules = db.query(models.AlertRule).filter(
+            models.AlertRule.server_id == server_id,
+            models.AlertRule.type == models.AlertRuleType.THRESHOLD,
+            models.AlertRule.is_enabled == True
+        ).all()
+
+        for rule in rules:
+            start_time = datetime.utcnow() - timedelta(minutes=rule.duration_minutes)
             
+            recent_metrics = db.query(models.Metric).filter(
+                models.Metric.server_id == server_id,
+                models.Metric.timestamp >= start_time
+            ).order_by(desc(models.Metric.timestamp)).all()
+
+            if len(recent_metrics) == 0:
+                continue  
+
+            is_violated = True
+            for metric_record in recent_metrics:
+                metric_value = None
+                
+                if rule.metric == 'cpu':
+                    metric_value = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'cpu.percent'), None)
+                elif rule.metric == 'memory':
+                    metric_value = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'mem.percent'), None)
+                elif rule.metric == 'disk':
+                    disk_metrics = next((m.get('value') for m in metric_record.metrics if m.get('name') == 'disk'), None)
+                    if disk_metrics and isinstance(disk_metrics, list):
+                        root_disk = next((d for d in disk_metrics if d.get('mountpoint') == '/'), None)
+                        if root_disk:
+                            metric_value = root_disk.get('percent')
+
+                if metric_value is None:
+                    is_violated = False
+                    break
+                
+                if rule.operator == '>' and not (metric_value > rule.threshold):
+                    is_violated = False
+                    break
+                if rule.operator == '<' and not (metric_value < rule.threshold):
+                    is_violated = False
+                    break
+
+            active_event = (
+                db.query(models.Incident)
+                .join(models.AlertRule, models.Incident.alert_rule_id == models.AlertRule.id) 
+                .filter(
+                    models.Incident.alert_rule_id == rule.id,
+                    models.AlertRule.type == models.AlertRuleType.THRESHOLD,
+                    models.Incident.resolved_at == None
+                ).first()
+            )
+
+            if is_violated and not active_event: 
+                print(f"TRIGGERING alert for rule '{rule.name}' on server '{server.hostname}'")
+                  
+                new_incident = crud.create_incident(db=db, server_id=server.id, alert_rule_id=rule.id)
+     
+                run_incident_analysis(new_incident.id)  
+                subject = f"🚨 Alert Firing: {rule.name} on {server.hostname}"
+                body = f"The alert '{rule.name}' is now firing.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThis condition has been met for over {rule.duration_minutes} minutes.\n\nAn incident has been created and is being analyzed."
+                send_email_notification(server.owner.email, subject, body)
+                if server.webhook_url and server.webhook_format:
+                    send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=True, headers=server.webhook_headers)
+
+            elif not is_violated and active_event: 
+                print(f"RESOLVING alert for rule '{rule.name}' on server '{server.hostname}'")
+             
+                active_event.resolved_at = datetime.utcnow()
+
+                incident_to_resolve = db.query(models.Incident).filter(
+                    models.Incident.alert_rule_id == rule.id,
+                    models.Incident.status != 'resolved'
+                ).order_by(desc(models.Incident.triggered_at)).first()
+
+                if incident_to_resolve:
+                    incident_to_resolve.status = 'resolved'
+                    incident_to_resolve.resolved_at = datetime.utcnow()
+
+                db.commit() 
+             
+                subject = f"✅ Alert Resolved: {rule.name} on {server.hostname}"
+                body = f"The alert '{rule.name}' has been resolved.\n\nCondition: {rule.metric} {rule.operator} {rule.threshold}%\nServer: {server.hostname}\n\nThe system has returned to a normal state."
+                send_email_notification(server.owner.email, subject, body)
+                if server.webhook_url and server.webhook_format:
+                    send_webhook_notification(server.webhook_url, server.webhook_format, subject, body, is_firing=False, headers=server.webhook_headers)
+ 
+    finally:
+        db.close()
+
 # ========== LOGS ==========
 @app.websocket("/api/v1/ws/logs")
 async def ws_logs(websocket: WebSocket, server_id: str = Query(...), token: Optional[str] = Query(None)):
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
         return
+ 
+    user = await run_in_threadpool(_authenticate_websocket_user, token, server_id)
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Authentication failed: Server not found or access denied")
+        return
 
+    await manager.connect(server_id, websocket)
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        await manager.disconnect(server_id, websocket) 
+         
+def _authenticate_websocket_user(token: str, server_id: str):
     db = SessionLocal()
     try:
         payload = decode_jwt(token)
@@ -1254,7 +1278,6 @@ async def ws_logs(websocket: WebSocket, server_id: str = Query(...), token: Opti
         if not user:
             raise Exception("User not found")
 
-        # Verify the server belongs to the user
         server = db.query(models.Server).filter(
             models.Server.id == server_id,
             models.Server.user_id == user.id
@@ -1262,18 +1285,10 @@ async def ws_logs(websocket: WebSocket, server_id: str = Query(...), token: Opti
 
         if not server:
             raise Exception("Server not found or access denied")
-
+        return user
     except Exception as e:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Authentication failed: {e}")
-        db.close()
-        return
-
-    await manager.connect(server_id, websocket)
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except WebSocketDisconnect:
-        await manager.disconnect(server_id, websocket)
+        print(f"WebSocket authentication error: {e}")
+        return None
     finally:
         db.close()
 
@@ -1316,11 +1331,13 @@ def recent_logs(
 
 @app.post("/api/v1/logs")
 async def post_logs(
-    payload: List[schemas.LogIn],  # define in schemas
+    payload: List[schemas.LogIn],
     server_uuid: models.Log = Depends(get_server_from_api_key),
     db: Session = Depends(get_db),
 ):
     accepted = 0
+    log_rows_to_add = []
+
     for item in payload:
         if str(item.server_id) != str(server_uuid.id):
             raise HTTPException(status_code=403, detail="server_id mismatch")
@@ -1334,10 +1351,8 @@ async def post_logs(
             message=item.message,
             meta=item.meta or {},
         )
-        db.add(log_row)
-        accepted += 1
+        log_rows_to_add.append(log_row)
 
-        # Broadcast to WS
         data = jsonable_encoder({
             "time": item.timestamp.isoformat(),
             "level": item.level,
@@ -1346,7 +1361,11 @@ async def post_logs(
             "message": item.message,
             "meta": item.meta or {}
         })
+        
         await manager.broadcast(str(item.server_id), {"type": "logs", "data": [data]})
 
-    db.commit()
+    db.add_all(log_rows_to_add)
+    await asyncio.to_thread(db.commit) 
+    
+    accepted = len(log_rows_to_add)
     return {"accepted": accepted}
