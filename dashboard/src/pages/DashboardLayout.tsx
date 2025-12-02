@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { MainTabs } from "../components/MainTabs"; 
+import { MainTabs } from "../components/navigations/MainTabs"; 
 import SettingsModal from '../components/SettingsModal';
 import { X } from 'lucide-react'; 
 import { useAuth } from "../context/AuthContext";

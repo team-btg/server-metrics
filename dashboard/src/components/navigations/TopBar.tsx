@@ -35,7 +35,7 @@ const TopBarLayout: React.FC<TopBarLayoutProps> = ({
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between px-6 py-4 bg-[#1e293b] shadow">
+      <div className="flex items-center justify-between px-6 py-1 bg-[#1e293b] shadow">
         {/* Server Dropdown */}
         <div className="flex items-center space-x-2">
           <input
@@ -66,9 +66,9 @@ const TopBarLayout: React.FC<TopBarLayoutProps> = ({
         </div>
         {/* Actions */}
         <div className="flex items-center space-x-4">
-          <button onClick={onAddServer} title="Add Server" className="hover:text-blue-400"><PlusCircle /></button>
-          <button onClick={onSettings} title="Settings" className="hover:text-blue-400"><Settings /></button>
-          <button onClick={onLogout} title="Logout" className="hover:text-red-400"><LogOut /></button>
+          <button onClick={onAddServer} title="Add Server" className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none"><PlusCircle /></button>
+          <button onClick={onSettings} title="Settings" className="bg-transparent p-1 rounded-full text-gray-400 hover:text-blue-400 focus:outline-none"><Settings /></button>
+          <button onClick={onLogout} title="Logout" className="bg-transparent p-1 rounded-full text-gray-400 hover:text-red-400 focus:outline-none"><LogOut /></button>
         </div>
       </div>
       {/* Main Content */}

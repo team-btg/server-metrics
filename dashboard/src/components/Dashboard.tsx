@@ -30,8 +30,8 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline = [], ramBaseline = [] }) => {
-  const [showCpuBaseline, setShowCpuBaseline] = useState(true);
-  const [showRamBaseline, setShowRamBaseline] = useState(true);
+  const [showCpuBaseline, setShowCpuBaseline] = useState(false);
+  const [showRamBaseline, setShowRamBaseline] = useState(false);
   const [maximizedChart, setMaximizedChart] = useState<string | null>(null);
   const metrics = metricPoint; 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
@@ -94,11 +94,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-semibold">CPU History</h2>
               <div>
-                <label className="text-xs mr-2">
+                <label className="text-xs mr-2 font-semibold">
                   <input
                     type="checkbox"
                     checked={showCpuBaseline}
                     onChange={e => setShowCpuBaseline(e.target.checked)}
+                    className="mr-1"
                   /> Show baseline
                 </label>
                 <button onClick={() => setMaximizedChart('cpu')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
@@ -160,11 +161,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-semibold">RAM History</h2>
               <div>
-                <label className="text-xs mr-2">
+                <label className="text-xs mr-2 font-semibold">
                   <input
                     type="checkbox"
                     checked={showRamBaseline}
                     onChange={e => setShowRamBaseline(e.target.checked)}
+                    className="mr-1"                    
                   /> Show baseline
                 </label>
                 <button onClick={() => setMaximizedChart('ram')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
