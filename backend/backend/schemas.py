@@ -140,3 +140,35 @@ class LogIn(BaseModel):
     event_id: Optional[str] = None
     message: str
     meta: Optional[Dict] = None
+
+class SpanIn(BaseModel):
+    id: UUID
+    parent_id: Optional[UUID] = None
+    name: str
+    span_type: str
+    start_time: datetime
+    duration_ms: float
+    attributes: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
+
+class TraceIn(BaseModel):
+    server_id: UUID 
+    timestamp: datetime
+    duration_ms: float
+    service_name: str
+    endpoint: Optional[str] = None
+    status_code: Optional[int] = None
+    attributes: Optional[Dict[str, Any]] = None
+    spans: List[SpanIn] = [] # Nested spans
+
+    class Config:
+        from_attributes = True
+ 
+class SpanOut(SpanIn):
+    trace_id: UUID
+
+class TraceOut(TraceIn):
+    id: UUID
+    spans: List[SpanOut] = []

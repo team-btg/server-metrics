@@ -167,3 +167,40 @@ class ApiKey(Base):
     key_hash = Column(String, unique=True, index=True, nullable=False)
     server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
     server = relationship("Server")
+
+class Trace(Base):
+    __tablename__ = "traces"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id"), nullable=False)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    duration_ms = Column(Float, nullable=False) # Total duration of the trace in milliseconds
+    service_name = Column(String, nullable=False) # e.g., "fastapi-app", "flask-service"
+    endpoint = Column(String, nullable=True) # e.g., "/api/v1/users/{user_id}"
+    status_code = Column(Integer, nullable=True) # HTTP status code for web requests
+    attributes = Column(JSON, nullable=True) # JSONB for additional trace-level metadata (e.g., host, user_id, request_id)
+
+    server = relationship("Server")
+    spans = relationship("Span", back_populates="trace", cascade="all, delete-orphan", order_by="Span.start_time")
+
+    def __repr__(self):
+        return f"<Trace {self.id} on {self.server_id} - {self.endpoint} ({self.duration_ms:.2f}ms)>"
+
+class Span(Base):
+    __tablename__ = "spans"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    trace_id = Column(UUID(as_uuid=True), ForeignKey("traces.id"), nullable=False)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("spans.id"), nullable=True) # For nested spans
+
+    name = Column(String, nullable=False) # e.g., "GET /users", "db.query", "calculate_payroll"
+    span_type = Column(String, nullable=False) # e.g., "http", "db", "function", "external", "cache"
+    start_time = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    duration_ms = Column(Float, nullable=False)
+    attributes = Column(JSON, nullable=True) # JSONB for span-specific metadata (e.g., actual DB query, HTTP method, URL, error message)
+
+    trace = relationship("Trace", back_populates="spans")
+    parent = relationship("Span", remote_side=[id], backref="children", uselist=False)
+
+    def __repr__(self):
+        return f"<Span {self.id} ({self.span_type}): {self.name} ({self.duration_ms:.2f}ms)>"

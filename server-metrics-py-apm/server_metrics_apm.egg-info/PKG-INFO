@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: server-metrics-apm
+Version: 0.1.0
+Summary: A lightweight APM instrumentation library for Python applications.
+Author-email: Bryan Gomez <bryangomez032000@gmail.com>
+Project-URL: Homepage, https://github.com/team-btg/server-metrics
+Project-URL: Bug Tracker, https://github.com/yourusername/server-metrics/issues
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: requests>=2.28.1
+Requires-Dist: uuid>=1.30
+Requires-Dist: python-dotenv>=1.0.0

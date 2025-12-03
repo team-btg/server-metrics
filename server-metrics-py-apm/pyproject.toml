@@ -1,0 +1,27 @@
+[project]
+name = "server-metrics-apm"
+version = "0.1.0"
+authors = [
+  { name="Bryan Gomez", email="bryangomez032000@gmail.com" },
+]
+description = "A lightweight APM instrumentation library for Python applications."
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests>=2.28.1",
+    "uuid>=1.30", # Although uuid is built-in, explicit dependency can be useful
+    "python-dotenv>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/team-btg/server-metrics"
+"Bug Tracker" = "https://github.com/yourusername/server-metrics/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

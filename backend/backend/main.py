@@ -852,13 +852,18 @@ metrics_router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
 def historical_metrics(
     server_id: str = Query(...),
     period: str = Query("1h", description="Time period, e.g., 15m, 1h, 6h, 24h"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         server_uuid = UUID(server_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid server_id")
 
+    server = db.query(models.Server).filter(models.Server.id == server_uuid).first()
+    if not server or server.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Server not found or permission denied.")
+ 
     period_map = {
         "15m": timedelta(minutes=15),
         "1h": timedelta(hours=1),
@@ -1369,3 +1374,85 @@ async def post_logs(
     
     accepted = len(log_rows_to_add)
     return {"accepted": accepted}
+
+apm_router = APIRouter(prefix="/api/v1/apm", tags=["APM"])
+
+def _save_trace_in_background(db_session_factory, trace_data: schemas.TraceIn, server_id: UUID):
+    db: Session = db_session_factory()
+    try: 
+        db_trace = models.Trace(
+            server_id=server_id,
+            timestamp=trace_data.timestamp,
+            duration_ms=trace_data.duration_ms,
+            service_name=trace_data.service_name,
+            endpoint=trace_data.endpoint,
+            status_code=trace_data.status_code,
+            attributes=trace_data.attributes
+        )
+        db.add(db_trace)
+        db.flush() 
+ 
+        db_spans = []
+        for span_in in trace_data.spans:
+            db_span = models.Span(
+                id=span_in.id,  
+                trace_id=db_trace.id,
+                parent_id=span_in.parent_id,
+                name=span_in.name,
+                span_type=span_in.span_type,
+                start_time=span_in.start_time,
+                duration_ms=span_in.duration_ms,
+                attributes=span_in.attributes
+            )
+            db_spans.append(db_span)
+        
+        if db_spans:
+            db.add_all(db_spans)
+        
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Error saving APM trace to database: {e}") 
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
+ 
+@apm_router.post("/traces", status_code=status.HTTP_202_ACCEPTED)
+async def post_apm_trace(
+    trace_payload: schemas.TraceIn,
+    background_tasks: BackgroundTasks,
+    server_id_query: UUID = Query(..., alias="server_id"), 
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Ingests application performance monitoring (APM) trace data for a specific server,
+    authenticated by JWT and server_id query parameter.
+    """
+
+    server = db.query(models.Server).filter(
+        models.Server.id == server_id_query,
+        models.Server.user_id == current_user.id
+    ).first()
+
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Server not found or you do not have permission to access it."
+        )
+
+    if trace_payload.server_id != server.id: # Compare UUID objects directly
+        raise HTTPException(status_code=403, detail="Server ID in payload does not match authorized server ID.")
+ 
+    background_tasks.add_task(
+        _save_trace_in_background,
+        SessionLocal, # Pass the callable SessionLocal function
+        trace_payload,
+        server.id # Pass the authenticated and authorized server's UUID
+    )
+
+    return {"message": "APM trace data accepted for processing."}
+
+ 
+app.include_router(apm_router) 
