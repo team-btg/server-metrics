@@ -1061,7 +1061,7 @@ def get_baselines(
 app.include_router(metrics_router)
  
 def _check_anomaly_and_alert_in_background(server_id, metric_name, metric_value):
-    db: Session = Depends(get_db)
+    db: Session = SessionLocal()
     try: 
         hour = datetime.utcnow().hour
         baseline = db.query(models.MetricBaseline).filter_by(
@@ -1151,7 +1151,7 @@ def _check_anomaly_and_alert_in_background(server_id, metric_name, metric_value)
         db.close()
 
 def _evaluate_alerts_for_server_in_background(server_id):
-    db: Session = Depends(get_db)
+    db: Session = SessionLocal()
     try: 
         server = db.query(models.Server).filter(models.Server.id == server_id).first()
         if not server or not server.user_id:
