@@ -66,9 +66,9 @@ const TopBarLayout: React.FC<TopBarLayoutProps> = ({
         </div>
         {/* Actions */}
         <div className="flex items-center space-x-4">
-          <button onClick={onAddServer} title="Add Server" className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none"><PlusCircle /></button>
-          <button onClick={onSettings} title="Settings" className="bg-transparent p-1 rounded-full text-gray-400 hover:text-blue-400 focus:outline-none"><Settings /></button>
-          <button onClick={onLogout} title="Logout" className="bg-transparent p-1 rounded-full text-gray-400 hover:text-red-400 focus:outline-none"><LogOut /></button>
+          <button onClick={onAddServer} title="Add Server" className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-white focus:outline-none"><PlusCircle /></button>
+          <button onClick={onSettings} title="Settings" className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-blue-400 focus:outline-none"><Settings /></button>
+          <button onClick={onLogout} title="Logout" className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-red-400 focus:outline-none"><LogOut /></button>
         </div>
       </div>
       {/* Main Content */}

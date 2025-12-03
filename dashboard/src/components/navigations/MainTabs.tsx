@@ -284,7 +284,7 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
           </div>
           <button 
             onClick={() => setTab('history')} 
-            className="bg-transparent rounded-full relative text-gray-400 text-white transition-colors"
+            className="bg-transparent rounded-lg relative text-gray-400 text-white transition-colors"
             aria-label="View active alerts"
           >
             <Bell 

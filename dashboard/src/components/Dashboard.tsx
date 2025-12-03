@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from "recharts";
 import Card from "./Card"; 
 import type { MetricPoint } from "../hooks/useMetrics";
+import { Maximize, X } from "lucide-react";
 
 interface StatCardProps {
   title: string;
@@ -102,11 +103,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
                     className="mr-1"
                   /> Show baseline
                 </label>
-                <button onClick={() => setMaximizedChart('cpu')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                <button onClick={() => setMaximizedChart('cpu')} className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-white focus:outline-none" title="Maximize">
                   {/* Smaller maximize icon */}
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
-                  </svg>
+                  <Maximize size={14} />
                 </button>
               </div>
             </div>
@@ -169,11 +168,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
                     className="mr-1"                    
                   /> Show baseline
                 </label>
-                <button onClick={() => setMaximizedChart('ram')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+                <button onClick={() => setMaximizedChart('ram')} className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-white focus:outline-none" title="Maximize">
                   {/* Smaller maximize icon */}
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
-                  </svg>
+                  <Maximize size={14} />
                 </button>
               </div>
             </div>
@@ -230,11 +227,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-semibold">Disk History</h2>
-              <button onClick={() => setMaximizedChart('disk')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+              <button onClick={() => setMaximizedChart('disk')} className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-white focus:outline-none" title="Maximize">
                 {/* Smaller maximize icon */}
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
-                </svg>
+                <Maximize size={14} />
               </button>
             </div>
             <ResponsiveContainer width="100%" height={200}>
@@ -256,11 +251,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
           <div className="bg-[#1e293b] rounded-2xl shadow-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-semibold">Network I/O</h2>
-              <button onClick={() => setMaximizedChart('network')} className="bg-transparent p-1 rounded-full text-gray-400 hover:text-white focus:outline-none" title="Maximize">
+              <button onClick={() => setMaximizedChart('network')} className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-white focus:outline-none" title="Maximize">
                 {/* Smaller maximize icon */}
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 4H4v6M20 14v6h-6M14 4h6v6M4 14v6h6" />
-                </svg>
+                <Maximize size={14} />
               </button>
             </div>
             <ResponsiveContainer width="100%" height={200}>
@@ -374,8 +367,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ metricPoint, cpuBaseline =
               {(maximizedChart === 'disk' || maximizedChart === 'network') && (
                 <h2 className="text-2xl font-bold capitalize">{maximizedChart} History</h2>
               )}
-              <button onClick={() => setMaximizedChart(null)} className="bg-transparent text-gray-400 hover:text-white focus:outline-none" title="Close">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              <button onClick={() => setMaximizedChart(null)} className="bg-transparent rounded-lg text-gray-400 hover:text-white focus:outline-none" title="Close">
+                <X size={24} />
               </button>
             </div>
             <ResponsiveContainer width="100%" height="100%">
