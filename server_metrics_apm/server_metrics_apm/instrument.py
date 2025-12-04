@@ -1,8 +1,9 @@
 import functools
 import threading
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable  
 from uuid import UUID
+import asyncio 
 
 from .client import APMClient
 from .utils import generate_uuid, now_ms
@@ -10,7 +11,7 @@ from .utils import generate_uuid, now_ms
 _thread_local = threading.local()
 _thread_local.current_trace_id = None
 _thread_local.current_span_id = None
-_thread_local.span_stack = []  
+_thread_local.span_stack = []
 
 _apm_client: Optional[APMClient] = None
 
@@ -49,19 +50,27 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
     """
     Decorator to trace the execution of a function.
     Automatically creates a new trace if one doesn't exist for the current thread.
+    Handles both synchronous and asynchronous functions.
     """
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        is_coroutine_function = asyncio.iscoroutinefunction(func)
+
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if _apm_client is None:
-                return func(*args, **kwargs)
+        async def wrapper(*args, **kwargs):
+            if _apm_client is None:            
+                if is_coroutine_function:
+                    return await func(*args, **kwargs)
+                else:
+                    return func(*args, **kwargs)
+
+            span_attributes = attributes.copy() if attributes is not None else {}
 
             trace_id = get_current_trace_id()
             is_root_trace = trace_id is None
             if is_root_trace:
                 trace_id = generate_uuid()
                 set_current_trace_id(trace_id)
-                _reset_trace_context() # Clear any previous stack for a new trace
+                _reset_trace_context()
 
             parent_span_id = get_current_span_id()
             span_id = generate_uuid()
@@ -73,13 +82,14 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
             result = None
             exception_happened = False
             try:
-                result = func(*args, **kwargs)
+                if is_coroutine_function:
+                    result = await func(*args, **kwargs)
+                else:
+                    result = await asyncio.to_thread(func, *args, **kwargs)
             except Exception as e:
                 exception_happened = True
-                if attributes is None:
-                    attributes = {}
-                attributes["error"] = True
-                attributes["error.message"] = str(e)
+                span_attributes["error"] = True
+                span_attributes["error.message"] = str(e)
                 raise
             finally:
                 end_time_ms = now_ms()
@@ -92,21 +102,20 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
                     "span_type": span_type,
                     "start_time": start_dt.isoformat(timespec='milliseconds') + 'Z',
                     "duration_ms": duration_ms,
-                    "attributes": attributes if attributes else {}
+                    "attributes": span_attributes
                 }
                 push_span_to_stack(span_data)
-                set_current_span_id(parent_span_id) # Restore parent span context
+                set_current_span_id(parent_span_id) 
 
-                if is_root_trace:
-                    # This span is the root of the trace
+                if is_root_trace: 
                     trace_payload = {
                         "server_id": str(_apm_client.server_id), # Agent's configured server ID
                         "timestamp": start_dt.isoformat(timespec='milliseconds') + 'Z',
                         "duration_ms": duration_ms,
-                        "service_name": _apm_client.backend_url.split("//")[1].split("/")[0], # Simple service name from URL
+                        "service_name": _apm_client.backend_url.split("//")[1].split("/")[0] if _apm_client.backend_url else "unknown-service", # Simple service name from URL
                         "endpoint": name, # Or get from request context if applicable
                         "status_code": 500 if exception_happened else 200, # Placeholder
-                        "attributes": {},
+                        "attributes": {}, # Trace-level attributes (can add more later)
                         "spans": _thread_local.span_stack
                     }
                     _apm_client.send_trace(trace_payload)
@@ -116,8 +125,8 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
         return wrapper
     return decorator
  
-def trace_http_request(name: str, attributes: Optional[Dict[str, Any]] = None):
+def trace_http_request(name: str, attributes: Optional[Dict[str, Any]] = None): 
     return trace_function(name, "http", attributes)
 
-def trace_db_query(name: str, attributes: Optional[Dict[str, Any]] = None):
+def trace_db_query(name: str, attributes: Optional[Dict[str, Any]] = None): 
     return trace_function(name, "db", attributes)

@@ -1,5 +1,5 @@
 Metadata-Version: 2.4
-Name: server-metrics-apm
+Name: server_metrics_apm
 Version: 0.1.0
 Summary: A lightweight APM instrumentation library for Python applications.
 Author-email: Bryan Gomez <bryangomez032000@gmail.com>
