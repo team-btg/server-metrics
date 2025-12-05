@@ -1,76 +1,86 @@
 import functools
-import threading
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable  
+from typing import Optional, List, Dict, Any
 from uuid import UUID
-import asyncio 
+import asyncio
 
-from .client import APMClient
+from server_metrics_apm import get_apm_client 
+from server_metrics_apm.context import ( 
+    get_current_trace_id, set_current_trace_id,
+    get_current_span_id, set_current_span_id,
+    push_span_to_stack,
+    get_span_stack, set_span_stack, 
+    reset_trace_context
+)
+
 from .utils import generate_uuid, now_ms
- 
-_thread_local = threading.local()
-_thread_local.current_trace_id = None
-_thread_local.current_span_id = None
-_thread_local.span_stack = []
-
-_apm_client: Optional[APMClient] = None
-
-def init_apm(backend_url: str, server_id: UUID, auth_token: str):
-    """Initializes the APM client globally for the application."""
-    global _apm_client
-    _apm_client = APMClient(backend_url, server_id, auth_token)
-    print(f"APM client initialized for server {server_id} reporting to {backend_url}")
-
-def get_current_trace_id() -> Optional[UUID]:
-    return getattr(_thread_local, 'current_trace_id', None)
-
-def get_current_span_id() -> Optional[UUID]:
-    return getattr(_thread_local, 'current_span_id', None)
-
-def set_current_trace_id(trace_id: UUID):
-    _thread_local.current_trace_id = trace_id
-
-def set_current_span_id(span_id: UUID):
-    _thread_local.current_span_id = span_id
-
-def push_span_to_stack(span_data: Dict[str, Any]):
-    """Adds a completed span to the thread-local stack for the current trace."""
-    if not hasattr(_thread_local, 'span_stack'):
-        _thread_local.span_stack = []
-    _thread_local.span_stack.append(span_data)
-
-def _reset_trace_context():
-    """Resets the thread-local trace context."""
-    _thread_local.current_trace_id = None
-    _thread_local.current_span_id = None
-    _thread_local.span_stack = []
-
-
+  
 def trace_function(name: str, span_type: str = "function", attributes: Optional[Dict[str, Any]] = None):
-    """
-    Decorator to trace the execution of a function.
-    Automatically creates a new trace if one doesn't exist for the current thread.
-    Handles both synchronous and asynchronous functions.
-    """
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func):
         is_coroutine_function = asyncio.iscoroutinefunction(func)
 
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            if _apm_client is None:            
-                if is_coroutine_function:
-                    return await func(*args, **kwargs)
-                else:
-                    return func(*args, **kwargs)
+        async def async_wrapper(*args, **kwargs):
+            apm_client_instance = get_apm_client()
+            if apm_client_instance is None:
+                return await func(*args, **kwargs)
 
-            span_attributes = attributes.copy() if attributes is not None else {}
+            trace_id = get_current_trace_id() 
+            if trace_id is None:
+                print(f"WARNING: trace_function('{name}') called without active trace context. Sending as standalone.")
+                temp_trace_id = generate_uuid()
+                set_current_trace_id(temp_trace_id)
+                reset_trace_context()
+                
+            parent_span_id = get_current_span_id()
+            span_id = generate_uuid()
+            set_current_span_id(span_id)
+
+            start_time_ms = now_ms()
+            start_dt = datetime.utcfromtimestamp(start_time_ms / 1000)
+
+            result = None
+            exception_happened = False
+            span_attributes = attributes.copy() if attributes else {}
+
+            try:
+                result = await func(*args, **kwargs)
+            except Exception as e:
+                exception_happened = True
+                span_attributes["error"] = True
+                span_attributes["error.message"] = str(e)
+                raise
+            finally:
+                end_time_ms = now_ms()
+                duration_ms = end_time_ms - start_time_ms
+
+                span_data = {
+                    "id": str(span_id),
+                    "parent_id": str(parent_span_id) if parent_span_id else None,
+                    "name": name,
+                    "span_type": span_type,
+                    "start_time": start_dt.isoformat(timespec='milliseconds') + 'Z',
+                    "duration_ms": duration_ms,
+                    "attributes": span_attributes 
+                }
+                push_span_to_stack(span_data)
+                set_current_span_id(parent_span_id)
+                
+            return result
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            apm_client_instance = get_apm_client()
+            if apm_client_instance is None:
+                return func(*args, **kwargs)
 
             trace_id = get_current_trace_id()
             is_root_trace = trace_id is None
             if is_root_trace:
-                trace_id = generate_uuid()
-                set_current_trace_id(trace_id)
-                _reset_trace_context()
+                print(f"WARNING: trace_function('{name}') called without active trace context. Sending as standalone.")
+                temp_trace_id = generate_uuid()
+                set_current_trace_id(temp_trace_id)
+                reset_trace_context() 
 
             parent_span_id = get_current_span_id()
             span_id = generate_uuid()
@@ -81,11 +91,10 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
 
             result = None
             exception_happened = False
+            span_attributes = attributes.copy() if attributes else {}
+
             try:
-                if is_coroutine_function:
-                    result = await func(*args, **kwargs)
-                else:
-                    result = await asyncio.to_thread(func, *args, **kwargs)
+                result = func(*args, **kwargs)
             except Exception as e:
                 exception_happened = True
                 span_attributes["error"] = True
@@ -105,28 +114,15 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
                     "attributes": span_attributes
                 }
                 push_span_to_stack(span_data)
-                set_current_span_id(parent_span_id) 
-
-                if is_root_trace: 
-                    trace_payload = {
-                        "server_id": str(_apm_client.server_id), # Agent's configured server ID
-                        "timestamp": start_dt.isoformat(timespec='milliseconds') + 'Z',
-                        "duration_ms": duration_ms,
-                        "service_name": _apm_client.backend_url.split("//")[1].split("/")[0] if _apm_client.backend_url else "unknown-service", # Simple service name from URL
-                        "endpoint": name, # Or get from request context if applicable
-                        "status_code": 500 if exception_happened else 200, # Placeholder
-                        "attributes": {}, # Trace-level attributes (can add more later)
-                        "spans": _thread_local.span_stack
-                    }
-                    _apm_client.send_trace(trace_payload)
-                    _reset_trace_context() # Clear context after sending
+                set_current_span_id(parent_span_id)
 
             return result
-        return wrapper
+        
+        return async_wrapper if is_coroutine_function else sync_wrapper
     return decorator
- 
-def trace_http_request(name: str, attributes: Optional[Dict[str, Any]] = None): 
+
+def trace_http_request(name: str, attributes: Optional[Dict[str, Any]] = None):
     return trace_function(name, "http", attributes)
 
-def trace_db_query(name: str, attributes: Optional[Dict[str, Any]] = None): 
+def trace_db_query(name: str, attributes: Optional[Dict[str, Any]] = None):
     return trace_function(name, "db", attributes)

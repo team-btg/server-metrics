@@ -1392,8 +1392,13 @@ def _save_trace_in_background(db_session_factory, trace_data: schemas.TraceIn, s
         db.add(db_trace)
         db.flush() 
  
+        sorted_spans_in = sorted(
+            trace_data.spans, 
+            key=lambda s: (0 if s.parent_id is None else 1, str(s.parent_id) if s.parent_id else '')
+        )
+
         db_spans = []
-        for span_in in trace_data.spans:
+        for span_in in sorted_spans_in:
             db_span = models.Span(
                 id=span_in.id,  
                 trace_id=db_trace.id,
