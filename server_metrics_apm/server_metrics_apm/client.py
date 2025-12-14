@@ -1,6 +1,4 @@
 import requests
-import json
-import os
 from dotenv import load_dotenv
 from typing import Dict, Any
 from uuid import UUID
@@ -18,7 +16,7 @@ class APMClient:
         """Sends a single trace (with its spans) to the backend."""
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.auth_token}"
+            "X-API-Key": self.auth_token
         } 
         trace_data["server_id"] = str(self.server_id) 
 

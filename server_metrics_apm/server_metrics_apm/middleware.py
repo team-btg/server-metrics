@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -8,9 +9,9 @@ from typing import Optional, Dict, Any
 from .utils import generate_uuid, now_ms
 from server_metrics_apm import get_apm_client
 from server_metrics_apm.context import ( 
-    get_current_trace_id, set_current_trace_id,
-    get_current_span_id, set_current_span_id,
-    get_span_stack, set_span_stack,
+    set_current_trace_id,
+    set_current_span_id,
+    get_span_stack, 
     reset_trace_context,
     push_span_to_stack
 )
@@ -24,6 +25,9 @@ class APMMiddleware(BaseHTTPMiddleware):
         if apm_client_instance is None:
             return await call_next(request)
 
+        if request.url.path == "/api/v1/apm/traces" and request.method == "POST":
+            return await call_next(request)
+        
         reset_trace_context() 
 
         trace_id = generate_uuid()
@@ -85,7 +89,10 @@ class APMMiddleware(BaseHTTPMiddleware):
                 "attributes": {}, 
                 "spans": all_spans_for_trace
             }
-            apm_client_instance.send_trace(trace_payload)
+
+            asyncio.create_task(
+                asyncio.to_thread(apm_client_instance.send_trace, trace_payload)
+            )
 
             reset_trace_context() 
 
