@@ -15,6 +15,7 @@ from server_metrics_apm.context import (
     reset_trace_context,
     push_span_to_stack
 )
+from urllib.parse import urlparse
 
 class APMMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
@@ -40,15 +41,16 @@ class APMMiddleware(BaseHTTPMiddleware):
         start_dt = datetime.utcfromtimestamp(start_time_ms / 1000)
 
         response: Optional[Response] = None
-        exception_happened = False
         status_code: int = 500 
+         
+        captured_exception: Optional[Exception] = None
 
         try:
             response = await call_next(request)
             status_code = response.status_code
-        except Exception as e:
-            exception_happened = True
-            raise
+        except Exception as e: 
+            captured_exception = e
+            raise  
         finally:
             end_time_ms = now_ms()
             duration_ms = end_time_ms - start_time_ms
@@ -61,10 +63,10 @@ class APMMiddleware(BaseHTTPMiddleware):
             if request.scope and 'route' in request.scope:
                 route_path = request.scope['route'].path
                 root_span_attributes["http.route"] = route_path
-
-            if exception_happened:
-                root_span_attributes["error"] = True
-                root_span_attributes["error.message"] = f"Unhandled exception during request: {type(e).__name__}" 
+ 
+            if captured_exception:
+                root_span_attributes["error"] = True 
+                root_span_attributes["error.message"] = f"Unhandled exception during request: {type(captured_exception).__name__}" 
 
             root_span_data = {
                 "id": str(root_span_id),
@@ -83,7 +85,7 @@ class APMMiddleware(BaseHTTPMiddleware):
                 "server_id": str(apm_client_instance.server_id), 
                 "timestamp": start_dt.isoformat(timespec='milliseconds') + 'Z',
                 "duration_ms": duration_ms,
-                "service_name": apm_client_instance.backend_url.split("//")[1].split("/")[0], 
+                "service_name": urlparse(apm_client_instance.backend_url).hostname,                
                 "endpoint": root_span_attributes.get('http.route', str(request.url.path)),
                 "status_code": status_code,
                 "attributes": {}, 
@@ -96,6 +98,6 @@ class APMMiddleware(BaseHTTPMiddleware):
 
             reset_trace_context() 
 
-        if response is None:
+        if response is None: 
             pass
         return response
