@@ -2,7 +2,7 @@ import os
 import sys
 import traceback 
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import func, extract, Float, literal_column, text
+from sqlalchemy import func, extract, literal_column
 from .. import models
 from .. import database 
  

@@ -67,3 +67,4 @@ cloud-sql-python-connector[pg8000]
 google-cloud-pubsub
 numpy
 apscheduler
+server-metrics-apm

@@ -37,11 +37,20 @@ from fastapi.responses import RedirectResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 
+from server_metrics_apm import init_apm, APMMiddleware, trace_function
+from server_metrics_apm.context import set_current_trace_id, set_current_span_id, push_span_to_stack, reset_trace_context
+from server_metrics_apm.utils import generate_uuid, now_ms
+
 load_dotenv()
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 TOPIC_ID = "metrics-broadcast"
+
+APM_BACKEND_URL_SELF = os.getenv("APM_BACKEND_URL_SELF") # Endpoint where *this* backend sends its traces (i.e., itself)
+APM_SERVER_ID_SELF_STR = os.getenv("APM_SERVER_ID_SELF") # A unique ID for *this* backend instance
+APM_AUTH_TOKEN_SELF = os.getenv("APM_AUTH_TOKEN_SELF") # An API Key or JWT for this backend to authenticate its traces
+
 
 publisher = pubsub_v1.PublisherClient()
 topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
@@ -184,12 +193,26 @@ scheduler.add_job(run_analysis_for_all_servers, 'interval', days=1)
 async def lifespan(app: FastAPI):
     initialize_database()
     scheduler.start()
+
+    if APM_BACKEND_URL_SELF and APM_SERVER_ID_SELF_STR and APM_AUTH_TOKEN_SELF:
+        try:
+            apm_server_id_self = UUID(APM_SERVER_ID_SELF_STR)
+            init_apm(APM_BACKEND_URL_SELF, apm_server_id_self, APM_AUTH_TOKEN_SELF)
+            print("APM initialized for backend self-monitoring.")
+        except ValueError:
+            print(f"ERROR: Invalid APM_SERVER_ID_SELF format: {APM_SERVER_ID_SELF_STR}. Backend APM disabled.")
+        except Exception as e:
+            print(f"ERROR: Failed to initialize backend APM: {e}")
+    else:
+        print("WARNING: APM_BACKEND_URL_SELF, APM_SERVER_ID_SELF, or APM_AUTH_TOKEN_SELF missing. Backend APM disabled.")
+ 
     yield
     print("Shutting down...")
     scheduler.shutdown()
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(APMMiddleware)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
@@ -443,7 +466,7 @@ def get_active_alert_count_for_server(
  
     count = db.query(models.Incident).filter(
         models.Incident.server_id == server_id,
-        models.Incident.resolved_at == None
+        models.Incident.resolved_at.is_(None)
     ).count()
     
     return count
@@ -508,8 +531,8 @@ app.include_router(auth_router)
 def get_server_from_api_key(key: str = Security(api_key_header), db: Session = Depends(get_db)):
     if not key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key is missing")
-    
-    key_hash = hashlib.sha256(key.encode()).hexdigest()
+     
+    key_hash = hashlib.sha256(key.encode()).hexdigest() 
     api_key_entry = db.query(models.ApiKey).filter(models.ApiKey.key_hash == key_hash).first()
 
     if not api_key_entry:
@@ -1098,7 +1121,7 @@ def _check_anomaly_and_alert_in_background(server_id, metric_name, metric_value)
 
         recent_incident = db.query(models.Incident).filter(
             models.Incident.alert_rule_id == alert_rule.id,
-            models.Incident.status == "Active",
+            models.Incident.status == "active",
             models.Incident.triggered_at >= now - timedelta(minutes=cooldown_minutes)
         ).first()
 
@@ -1108,7 +1131,7 @@ def _check_anomaly_and_alert_in_background(server_id, metric_name, metric_value)
             incident = models.Incident(
                 server_id=server_id,
                 alert_rule_id=alert_rule.id,
-                status="Active",
+                status="active",
                 triggered_at=now,
                 summary=f"Anomaly detected: {metric_name}={metric_value:.2f} (expected {baseline.mean_value:.2f}±{baseline.std_dev_value:.2f})"
             )
@@ -1132,8 +1155,8 @@ def _check_anomaly_and_alert_in_background(server_id, metric_name, metric_value)
         elif not is_anomaly:
             active_incident = db.query(models.Incident).filter(
                 models.Incident.alert_rule_id == alert_rule.id,
-                models.Incident.status == "Active",
-                models.Incident.resolved_at == None
+                models.Incident.status == "active",
+                models.Incident.resolved_at.is_(None)
             ).first()
             if active_incident:
                 active_incident.status = "resolved"
@@ -1211,7 +1234,7 @@ def _evaluate_alerts_for_server_in_background(server_id):
                 .filter(
                     models.Incident.alert_rule_id == rule.id,
                     models.AlertRule.type == models.AlertRuleType.THRESHOLD,
-                    models.Incident.resolved_at == None
+                    models.Incident.resolved_at.is_(None)
                 ).first()
             )
 
@@ -1428,16 +1451,39 @@ async def post_apm_trace(
     trace_payload: schemas.TraceIn,
     background_tasks: BackgroundTasks,
     server_id_query: UUID = Query(..., alias="server_id"), 
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    server: models.Server = Depends(get_server_from_api_key)
 ):
     """
     Ingests application performance monitoring (APM) trace data for a specific server,
     authenticated by JWT and server_id query parameter.
     """
 
+    if trace_payload.server_id != server.id: # Compare UUID objects directly
+        raise HTTPException(status_code=403, detail="Server ID in payload does not match authorized server ID.")
+  
+    background_tasks.add_task(
+        _save_trace_in_background,
+        SessionLocal, 
+        trace_payload,
+        server_id_query
+    )
+
+    return {"message": "APM trace data accepted for processing."}
+
+@apm_router.get("/traces/{server_id}", response_model=List[schemas.TraceOut])
+async def get_server_traces(
+    server_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
+):
+    """
+    Retrieves a list of recent application traces for a given server,
+    including their top-level spans.
+    """ 
     server = db.query(models.Server).filter(
-        models.Server.id == server_id_query,
+        models.Server.id == server_id,
         models.Server.user_id == current_user.id
     ).first()
 
@@ -1446,18 +1492,15 @@ async def post_apm_trace(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Server not found or you do not have permission to access it."
         )
-
-    if trace_payload.server_id != server.id: # Compare UUID objects directly
-        raise HTTPException(status_code=403, detail="Server ID in payload does not match authorized server ID.")
+     
+    traces = db.query(models.Trace).options(
+        joinedload(models.Trace.spans).undefer_group('default') 
+    ).filter(
+        models.Trace.server_id == server_id
+    ).order_by(
+        models.Trace.timestamp.desc()
+    ).offset(offset).limit(limit).all()
  
-    background_tasks.add_task(
-        _save_trace_in_background,
-        SessionLocal, # Pass the callable SessionLocal function
-        trace_payload,
-        server.id # Pass the authenticated and authorized server's UUID
-    )
-
-    return {"message": "APM trace data accepted for processing."}
-
+    return traces
  
 app.include_router(apm_router) 

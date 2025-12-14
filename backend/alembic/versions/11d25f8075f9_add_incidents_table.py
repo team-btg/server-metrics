@@ -24,7 +24,7 @@ def upgrade() -> None:
     op.create_table('incidents',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('server_id', sa.UUID(), nullable=False),
-    sa.Column('alert_rule_id', sa.UUID(), nullable=False),
+    sa.Column('alert_rule_id', sa.Integer(), nullable=False),
     sa.Column('status', sa.String(), nullable=True),
     sa.Column('triggered_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),

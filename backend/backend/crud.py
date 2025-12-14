@@ -25,7 +25,7 @@ def get_latest_recommendation_for_server(db: Session, server_id: UUID) -> models
         desc(models.Recommendation.created_at)
     ).first()
 
-def create_incident(db: Session, server_id: UUID, alert_rule_id: UUID) -> models.Incident:
+def create_incident(db: Session, server_id: UUID, alert_rule_id: int) -> models.Incident:
     """Creates a new incident record in the database."""
     db_incident = models.Incident(
         server_id=server_id,
