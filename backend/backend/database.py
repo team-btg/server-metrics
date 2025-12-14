@@ -76,4 +76,4 @@ def get_database_engine():
             raise RuntimeError("Failed to initialize database engine after attempt.")
     return _engine
  
-engine = get_database_engine
+engine = get_database_engine()

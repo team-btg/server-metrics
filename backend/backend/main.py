@@ -37,9 +37,7 @@ from fastapi.responses import RedirectResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 
-from server_metrics_apm import init_apm, APMMiddleware, trace_function
-from server_metrics_apm.context import set_current_trace_id, set_current_span_id, push_span_to_stack, reset_trace_context
-from server_metrics_apm.utils import generate_uuid, now_ms
+from server_metrics_apm import init_apm, APMMiddleware 
 
 load_dotenv()
 
