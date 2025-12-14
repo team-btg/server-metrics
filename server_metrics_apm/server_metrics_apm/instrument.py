@@ -13,6 +13,7 @@ from server_metrics_apm.context import (
 )
 
 from .utils import generate_uuid, now_ms
+from urllib.parse import urlparse
   
 def trace_function(name: str, span_type: str = "function", attributes: Optional[Dict[str, Any]] = None):
     def decorator(func):
@@ -75,7 +76,7 @@ def trace_function(name: str, span_type: str = "function", attributes: Optional[
                         "server_id": str(apm_client_instance.server_id), 
                         "timestamp": start_dt.isoformat(timespec='milliseconds') + 'Z',
                         "duration_ms": duration_ms,
-                        "service_name": apm_client_instance.backend_url.split("//")[1].split("/")[0], 
+                        "service_name": urlparse(apm_client_instance.backend_url).hostname or "unknown-service", 
                         "endpoint": name, 
                         "status_code": 500 if exception_happened else 200, 
                         "attributes": {}, 
