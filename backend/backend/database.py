@@ -7,19 +7,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 Base = declarative_base()
-engine = None
-SessionLocal = None
+ 
+_engine = None
+_SessionLocal = None
 
-def initialize_database():
-    """Initializes the database engine and session factory for the FastAPI app."""
-    global engine, SessionLocal
-    if engine:
+def _create_and_configure_engine():
+    """Helper to create the SQLAlchemy engine and sessionmaker based on environment."""
+    global _engine, _SessionLocal
+    if _engine is not None: 
         return
 
     DB_CONNECTION_NAME = os.getenv("DB_CONNECTION_NAME")
 
-    if DB_CONNECTION_NAME:
-        # Production (Cloud Run): Use Cloud SQL Python Connector
+    if DB_CONNECTION_NAME: 
         connector = Connector()
         def getconn():
             return connector.connect(
@@ -27,21 +27,53 @@ def initialize_database():
                 user=os.environ["DB_USER"], password=os.environ["DB_PASS"],
                 db=os.environ["DB_NAME"], ip_type=IPTypes.PUBLIC
             )
-        engine = create_engine("postgresql+pg8000://", creator=getconn)
-    else:
-        # Development: Use the standard DATABASE_URL from .env
+        _engine = create_engine("postgresql+pg8000://", creator=getconn)
+    else: 
         DATABASE_URL = os.getenv("DATABASE_URL")
         if not DATABASE_URL:
             raise ValueError("DATABASE_URL environment variable not set for local development")
-        engine = create_engine(DATABASE_URL)
+        _engine = create_engine(DATABASE_URL)
 
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
+    _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine) 
+    Base.metadata.create_all(bind=_engine)
+    print("Database engine and session factory configured and tables created.")
+ 
+def get_db_session_for_background():
+    """
+    Provides a fresh DB session for background tasks.
+    Ensures database engine and session factory are initialized if not already.
+    """
+    if _SessionLocal is None: 
+        _create_and_configure_engine()
+        if _SessionLocal is None:
+             raise RuntimeError("Failed to initialize database session factory after attempt.")
+    
+    return _SessionLocal()  
+ 
 def get_db():
-    if not SessionLocal:
+    """Provides a DB session for FastAPI request-response cycle."""
+    if _SessionLocal is None:
         raise RuntimeError("Database not initialized. Call initialize_database() on app startup.")
-    db = SessionLocal()
+    db = _SessionLocal()
     try:
         yield db
     finally:
         db.close()
+ 
+def initialize_database():
+    _create_and_configure_engine()
+ 
+SessionLocal = get_db_session_for_background
+
+def get_database_engine():
+    """
+    Provides access to the initialized SQLAlchemy engine.
+    Ensures the engine is initialized if not already.
+    """
+    if _engine is None:
+        _create_and_configure_engine()
+        if _engine is None:
+            raise RuntimeError("Failed to initialize database engine after attempt.")
+    return _engine
+ 
+engine = get_database_engine()

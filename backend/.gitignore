@@ -88,3 +88,4 @@ Thumbs.db
 
 .env
 backend/.env
+*.exe

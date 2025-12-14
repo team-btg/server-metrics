@@ -1,20 +1,45 @@
-import React, { useState } from "react";
-import { AlertTriangle, Bell, FileText, Folder, Microchip, HardDrive } from 'lucide-react';
-import { Dashboard } from "./Dashboard";
-import { Logs } from "./Logs";
-import ProcessList from './ProcessList';
-import PeriodSelector from './PeriodSelector';
-import IntervalSelector from './IntervalSelector';
-import { useMetrics } from "../hooks/useMetrics";   
-import ChatPopup from "./ChatPopup";
-import DiskUsage from "./DiskUsage"; 
-import AlertHistory from "./AlertHistory";  
+import React, { useState, useMemo } from "react"; // Import useMemo
+import { Bell, FileText, Folder, Microchip, HardDrive, HistoryIcon, AlertTriangle, Lightbulb, LightbulbOff } from 'lucide-react'; // Import AlertTriangle
+import { Dashboard } from "../Dashboard";
+import { Logs } from "../Logs";
+import ProcessList from '../ProcessList';
+import PeriodSelector from '../PeriodSelector';
+import IntervalSelector from '../IntervalSelector'; 
+import ChatPopup from "../ChatPopup";
+import DiskUsage from "../DiskUsage";  
+import IncidentFeed from "../IncidentFeed";
+import { useMetrics } from "../../hooks/useMetrics";   
+import { useWebSocketMetrics } from "../../hooks/useWebSocketMetrics";
 import { useQuery } from '@tanstack/react-query';
-
+import RightSizingAdvisor from '../RightSizingAdvisor'; 
+ 
+const DashboardSkeleton = () => (
+    <div className="p-4 space-y-4 animate-pulse">
+        <div className="flex justify-center"><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><div className="bg-[#1e293b] rounded-2xl size-44"></div><div className="bg-[#1e293b] rounded-2xl size-44"></div><div className="bg-[#1e293b] rounded-2xl size-44"></div></div></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+            <div className="h-56 bg-[#1e293b] rounded-2xl"></div>
+        </div>
+    </div>
+);
+ 
 interface MainTabsProps {
   serverId: string;
   token?: string;
 }
+
+const fetchBaseline = async (serverId: string, metric: string, token?: string) => {
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/api/v1/metrics/baselines/${serverId}?metric=${metric}`,
+    token ? { headers: { 'Authorization': `Bearer ${token}` } } : undefined
+  );
+  if (!response.ok) throw new Error('Failed to fetch baseline');
+  return response.json();
+};
 
 const fetchActiveAlertCount = async (serverId: string, token: string): Promise<number> => {
   const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/events/servers/${serverId}/active_count`, {
@@ -28,8 +53,8 @@ const fetchActiveAlertCount = async (serverId: string, token: string): Promise<n
 
 export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
   const [tab, setTab] = useState("dashboard"); 
-  const [period, setPeriod] = useState('1h');
-  const [interval, setInterval] = useState(5000); 
+  const [period, setPeriod] = useState('1h'); // Default to 1h for better initial view
+  const [interval, setInterval] = useState(10000); // Interval is now less critical
 
   const { data: activeAlertsCount } = useQuery({
     queryKey: ['activeAlertCount', serverId],
@@ -38,8 +63,47 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
     refetchInterval: 15000, // Refetch every 15 seconds
   });
 
-  const metrics = useMetrics(serverId, period, interval, token); 
-  const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
+  const { data: cpuBaseline = [] } = useQuery({
+    queryKey: ['cpuBaseline', serverId],
+    queryFn: () => fetchBaseline(serverId, 'cpu.percent', token),
+    enabled: !!serverId,
+  });
+
+  const { data: ramBaseline = [] } = useQuery({
+    queryKey: ['ramBaseline', serverId],
+    queryFn: () => fetchBaseline(serverId, 'mem.percent', token),
+    enabled: !!serverId,
+  });
+
+  const [isAdvisorVisible, setIsAdvisorVisible] = useState(true);
+ 
+  // --- NEW DECOUPLED DATA FETCHING ---
+  const { historicalMetrics, isLoading, error } = useMetrics(serverId, period, token); 
+  const liveMetrics = useWebSocketMetrics(serverId, token);
+
+  const { data: recommendations } = useQuery<any[]>({
+    queryKey: ['recommendations', serverId], 
+    queryFn: () => fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/servers/${serverId}/recommendations`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+    }).then(res => res.json()),
+    enabled: !!token,
+  });
+
+  const hasActionableRecommendation = recommendations && recommendations.length > 0 && recommendations[0].recommendation_type !== 'STABLE';
+
+  // Combine historical and live data, ensuring no duplicates and proper sorting
+  const allMetrics = useMemo(() => {
+    const metricMap = new Map();
+    // Add historical data first
+    historicalMetrics.forEach(metric => metricMap.set(metric.timestamp, metric));
+    // Overwrite with live data, which is more up-to-date
+   liveMetrics.forEach(metric => metricMap.set(metric.timestamp, metric));
+    
+    return Array.from(metricMap.values())
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [historicalMetrics, liveMetrics]);
+  
+  const latestMetric = allMetrics.length > 0 ? allMetrics[allMetrics.length - 1] : null;
 
   const getSystemStatus = () => {
     if (!latestMetric) return { status: 'loading', text: 'Loading...', color: 'text-gray-700', bgColor: 'bg-gray-700' };
@@ -78,23 +142,47 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
   const systemStatus = getSystemStatus();
   
   const renderContent = () => {
+    // --- NEW LOADING AND ERROR HANDLING ---
+    if (tab === 'dashboard') {
+      if (isLoading) {
+        return <DashboardSkeleton />;
+      }
+      if (error) {
+        return (
+          <div className="flex flex-col items-center justify-center h-96 text-red-400">
+            <AlertTriangle className="h-12 w-12 mb-4" />
+            <h2 className="text-xl font-bold">Failed to Load Dashboard</h2>
+            <p className="mt-2 text-gray-400">{error}</p>
+          </div>
+        );
+      }
+    }
+
     switch (tab) {
       case 'dashboard':
-        return <Dashboard metricPoint={metrics} />;
+        // Pass the combined 'allMetrics' to the Dashboard
+        return <Dashboard metricPoint={allMetrics} cpuBaseline={cpuBaseline} ramBaseline={ramBaseline} />;
       case 'logs':
-        return <Logs serverId={serverId} token={token} />;
+        return <Logs serverId={serverId} />;
       case 'processes': 
-        return <ProcessList metricPoint={metrics} />;
+        // ProcessList can also use the combined data
+        return <ProcessList metricPoint={latestMetric?.processes || []} />;
       case 'disk':  
-        return <DiskUsage metricPoint={metrics} />;
-       case "alerts": 
-        return <AlertHistory serverId={serverId} token={token || ""} />;
+        // DiskUsage can also use the combined data
+        return <DiskUsage metricPoint={latestMetric?.disk || []} />; 
+      case "history":
+          return <IncidentFeed serverId={serverId} />;
       default:
-        return <Dashboard metricPoint={metrics} />;
+        return <Dashboard metricPoint={allMetrics} cpuBaseline={cpuBaseline} ramBaseline={ramBaseline} />;
     }
   };
   return (
     <div className="min-h-screen bg-[#0f172a] text-gray-200">
+      <RightSizingAdvisor 
+        serverId={serverId} 
+        isVisible={isAdvisorVisible}
+        onDismiss={() => setIsAdvisorVisible(false)}
+      />         
       {/* Main header bar with tabs and controls */}
       <div className="flex items-center justify-between px-4 pt-2">
         {/* Left side: Tab buttons */}
@@ -157,26 +245,35 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
               <span>Disk</span>
             </div>
             {tab === "disk" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
-          </button> 
+          </button>  
 
           <button
             className={`relative px-4 py-2 rounded-t-lg border border-b-0 transition-all duration-200 ${
-              tab === "alerts" 
+              tab === "history" 
                 ? "bg-[#1e293b] border-gray-600 text-white shadow-lg" 
                 : "bg-[#0f172a] border-transparent text-gray-400 hover:text-gray-300 hover:bg-[#1a2436]"
             }`}
-            onClick={() => setTab("alerts")}
+            onClick={() => setTab("history")}
           >
             <div className="flex items-center space-x-2">
-              <AlertTriangle size={16} />
-              <span>Alerts</span>
+              <HistoryIcon size={16} />
+              <span>History</span>
             </div>
-            {tab === "alerts" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
+            {tab === "history" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>}
           </button>
         </div>
 
         {/* Right side: Status and Selectors */}
-        <div className="flex items-center space-x-4"> 
+        <div className="flex items-center space-x-4">
+          {hasActionableRecommendation && (
+            <button
+              onClick={() => setIsAdvisorVisible(!isAdvisorVisible)}
+              className="p-2 rounded-full bg-gray-800 hover:bg-gray-700 transition-colors"
+              title={isAdvisorVisible ? "Hide Recommendation" : "Show Recommendation"}
+            >
+              {isAdvisorVisible ? <LightbulbOff size={18} className="text-yellow-400" /> : <Lightbulb size={18} className="text-yellow-400 animate-pulse" />}
+            </button>
+          )}                      
           <div className="flex items-center space-x-2">
             <span className={`relative flex h-3 w-3`}>
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${systemStatus.bgColor} opacity-75`}></span>
@@ -186,8 +283,8 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
             <span className={`hidden sm:block font-semibold ${systemStatus.color}`}>{systemStatus.text}</span> 
           </div>
           <button 
-            onClick={() => setTab('alerts')} 
-            className="bg-transparent relative text-gray-400 text-white transition-colors"
+            onClick={() => setTab('history')} 
+            className="bg-transparent rounded-lg relative text-gray-400 text-white transition-colors"
             aria-label="View active alerts"
           >
             <Bell 
@@ -210,11 +307,11 @@ export const MainTabs: React.FC<MainTabsProps> = ({ serverId, token }) => {
       </div> 
       
       {/* Tab Content Area */}
-      <div className="bg-[#1e293b] rounded-b-lg rounded-tr-lg shadow-xl min-h-[calc(100vh-80px)]">
+      <div className="bg-transparent rounded-b-lg rounded-tr-lg shadow-xl min-h-[calc(100vh-80px)]">
         {renderContent()}
       </div>  
 
-      {/* Add the Chat Popup Component Here */}
+      {/* Pass the combined 'latestMetric' to the Chat Popup */}
       <ChatPopup latestMetric={latestMetric} token={token} />
     </div>
   );

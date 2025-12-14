@@ -1,13 +1,13 @@
 import React from 'react';
-import type { MetricPoint } from '../hooks/useMetrics';
+import type { DiskMetric } from '../hooks/useMetrics';
 
 interface DiskUsageProps {
-  metricPoint: MetricPoint[];
+  metricPoint: DiskMetric[];
 }
 
 const DiskUsage: React.FC<DiskUsageProps> = ({ metricPoint }) => {
-  const disks = metricPoint.length > 0 && metricPoint[metricPoint.length - 1].disk ? metricPoint[metricPoint.length - 1].disk! : [];
-
+  const disks: DiskMetric[] = metricPoint || [];
+  
   const getUsageColor = (percent: number) => {
     if (percent > 95) return 'bg-red-600';
     if (percent > 85) return 'bg-yellow-500';

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface LogEntry {
   id: string;
@@ -12,8 +13,7 @@ interface LogEntry {
 }
 
 interface LogsProps {
-  serverId: string;
-  token?: string;
+  serverId: string; 
 }
 
 const fetchLogs = async (serverId: string, token: string): Promise<LogEntry[]> => {
@@ -26,10 +26,11 @@ const fetchLogs = async (serverId: string, token: string): Promise<LogEntry[]> =
   return response.json();
 };
 
-export const Logs: React.FC<LogsProps> = ({ serverId, token }) => {
+export const Logs: React.FC<LogsProps> = ({ serverId }) => {
+  const { token } = useAuth();
   const { data: logs = [], isLoading, error } = useQuery({
     queryKey: ['logs', serverId],
-    queryFn: () => fetchLogs(serverId, token || ''),
+    queryFn: () => fetchLogs(serverId, token!),
     enabled: !!token,
     refetchInterval: 10000, // Refetch every 10 seconds
   });

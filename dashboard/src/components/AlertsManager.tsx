@@ -10,6 +10,7 @@ interface AlertRule {
   threshold: number;
   duration_minutes: number;
   is_enabled: boolean;
+  type: 'THRESHOLD' | 'ANOMALY';
 }
 
 interface AlertsManagerProps {
@@ -35,7 +36,7 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ serverId, token }) => {
         });
         if (!response.ok) throw new Error('Failed to fetch rules.');
         const data = await response.json();  
-        setRules(data);
+        setRules(data); 
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -109,8 +110,11 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ serverId, token }) => {
                   <p className="text-white font-semibold">{rule.name}</p>
                   <div className="flex items-center text-sm text-gray-400 mt-1">
                     <span className="font-mono uppercase bg-gray-700 text-white text-xs font-bold mr-2 px-2.5 py-0.5 rounded">{rule.metric}</span>
-                    <span>{rule.operator} {rule.threshold}%</span>
-                    <span className="ml-2">for {rule.duration_minutes} min</span>
+                    {rule.type === 'THRESHOLD' ? (
+                      <span>{rule.operator} {rule.threshold}% for {rule.duration_minutes} min</span>
+                    ) : (
+                      <span>Anomaly detection alert</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
@@ -158,19 +162,21 @@ const RuleFormModal: React.FC<RuleFormModalProps> = ({ serverId, token, existing
   const [isEnabled, setIsEnabled] = useState(existingRule?.is_enabled || false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [alertType, setAlertType] = useState(existingRule?.type || 'THRESHOLD'); 
 
   const isEditing = existingRule !== null;
-
+ 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError(null);
 
-    const ruleData = { name, metric, operator, threshold, duration_minutes: duration, is_enabled: isEnabled };
+    const ruleData = { name, metric, operator, threshold, duration_minutes: duration, is_enabled: isEnabled, type: alertType };
     const url = isEditing ? `${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/${existingRule.id}` : `${import.meta.env.VITE_API_BASE_URL}/api/v1/alerts/servers/${serverId}`;
     const method = isEditing ? 'PUT' : 'POST';
 
     try {
+      console.log('Submitting rule data:', JSON.stringify(ruleData)); // Debug log
       const response = await fetch(url, {
         method: method,
         headers: {
@@ -178,7 +184,7 @@ const RuleFormModal: React.FC<RuleFormModalProps> = ({ serverId, token, existing
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(ruleData),
-      });
+      }); 
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -215,7 +221,19 @@ const RuleFormModal: React.FC<RuleFormModalProps> = ({ serverId, token, existing
                 placeholder="e.g., High CPU Warning"
               />
             </div>
-            {/* Metric Selector */}
+            {/* Alert Type Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300">Alert Type</label>
+              <select
+                value={alertType}
+                onChange={e => setAlertType(e.target.value as 'THRESHOLD' | 'ANOMALY')}
+                className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white"
+              >
+                <option value="THRESHOLD">Threshold</option>
+                <option value="ANOMALY">Anomaly</option>
+              </select>
+            </div>
+            {/* Metric Selector - Always visible */}
             <div>
               <label className="block text-sm font-medium text-gray-300">Metric</label>
               <select value={metric} onChange={e => setMetric(e.target.value as any)} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white">
@@ -224,26 +242,38 @@ const RuleFormModal: React.FC<RuleFormModalProps> = ({ serverId, token, existing
                 <option value="disk">Disk Usage</option>
               </select>
             </div>
-            {/* Condition Builder */}
-            <div className="flex items-center space-x-2">
-              <div className="w-1/3">
-                <label className="block text-sm font-medium text-gray-300">Condition</label>
-                <select value={operator} onChange={e => setOperator(e.target.value as any)} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white">
-                  <option value=">">Greater Than</option>
-                  <option value="<">Less Than</option>
-                </select>
-              </div>
-              <div className="w-2/3">
-                <label className="block text-sm font-medium text-gray-300">Threshold (%)</label>
-                <input type="number" value={threshold} onChange={e => setThreshold(Number(e.target.value))} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white" />
-              </div>
-            </div>
-            {/* Duration */}
-            <div>
-              <label className="block text-sm font-medium text-gray-300">Duration (minutes)</label>
-              <input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white" />
-              <p className="text-xs text-gray-500 mt-1">The condition must be met for this many minutes to trigger an alert.</p>
-            </div>
+            {/* Condition Builder - Visible only for THRESHOLD type */}
+            {alertType === "THRESHOLD" && (
+              <>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1/3">
+                    <label className="block text-sm font-medium text-gray-300">Condition</label>
+                    <select value={operator} onChange={e => setOperator(e.target.value as any)} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white">
+                      <option value=">">Greater Than</option>
+                      <option value="<">Less Than</option>
+                    </select>
+                  </div>
+                  <div className="w-2/3">
+                    <label className="block text-sm font-medium text-gray-300">Threshold (%)</label>
+                    <input type="number" value={threshold} onChange={e => setThreshold(Number(e.target.value))} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white" />
+                  </div>
+                </div>
+                {/* Duration - Visible only for THRESHOLD type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Duration (minutes)</label>
+                  <input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} className="mt-1 block w-full bg-gray-900 border-gray-700 rounded-md py-2 px-3 text-white" />
+                  <p className="text-xs text-gray-500 mt-1">The condition must be met for this many minutes to trigger an alert.</p>
+                </div>
+              </>
+            )}
+            {/* Anomaly settings - Visible only for ANOMALY type */}
+            {alertType === "ANOMALY" && (
+              <>
+                <div className="text-xs text-gray-500 mb-2">
+                  Alerts will trigger when the metric value deviates significantly from its normal pattern.
+                </div>
+              </>
+            )}
             <div className="flex items-center space-x-2"> 
               <input type="checkbox" checked={isEnabled} onChange={e => setIsEnabled(e.target.checked)} className="mt-1 block h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
               <label className="block text-sm font-medium text-gray-300">Enable</label>
