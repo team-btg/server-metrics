@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import type { MetricPoint } from "./useMetrics"; // Reuse the same interface
- // Reuse the same interface
+import type { MetricPoint } from "./useMetrics"; 
 
 export function useWebSocketMetrics(serverId: string, token?: string) {
   const [liveMetrics, setLiveMetrics] = useState<MetricPoint[]>([]);

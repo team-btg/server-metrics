@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingDown, TrendingUp, CheckCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
  
 interface RightSizingAdvisorProps {
   serverId: string;
-  isVisible: boolean; // New prop to control visibility
-  onDismiss: () => void; // New callback for when the 'X' is clicked
+  isVisible: boolean; 
+  onDismiss: () => void; 
 }
 
 type RecommendationType = "UPGRADE" | "DOWNGRADE" | "STABLE";
@@ -51,23 +51,19 @@ const RightSizingAdvisor: React.FC<RightSizingAdvisorProps> = ({ serverId, isVis
  
   const { data, isLoading, error } = useQuery({
     queryKey: ['recommendations', serverId],
-    // If useMockData is true, return a resolved promise with mock data. Otherwise, call the real API.
     queryFn: () => fetchRecommendations(serverId, token!),
     enabled: !!token,
-    staleTime: 1000 * 60 * 60, // Recommendations are generated daily, so data is stale for 1 hour
+    staleTime: 1000 * 60 * 60, 
   });
 
   const latestRecommendation = data?.[0];
-
-  // --- UI LOGIC ---
-  // Don't render anything if there's no actionable recommendation.
+ 
   if (isLoading || error || !latestRecommendation || latestRecommendation.recommendation_type === 'STABLE') {
     return null;
   }
-
-  // Use the `isVisible` prop to control visibility with CSS.
+ 
   if (!isVisible) {
-    return null; // Or return a placeholder if you prefer, but null is cleaner for this case.
+    return null;
   }
 
   const styles = recommendationStyles[latestRecommendation.recommendation_type];
@@ -75,7 +71,7 @@ const RightSizingAdvisor: React.FC<RightSizingAdvisorProps> = ({ serverId, isVis
   return (
     <div className={`relative p-6 rounded-lg border ${styles.bg} transition-all duration-300`}>
       <button
-        onClick={onDismiss} // Use the callback prop
+        onClick={onDismiss} 
         className="absolute top-2 right-2 p-1 text-gray-500 hover:text-white rounded-full"
         aria-label="Dismiss recommendation"
       >

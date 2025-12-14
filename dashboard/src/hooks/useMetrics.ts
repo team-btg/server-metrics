@@ -121,7 +121,7 @@ export function useMetrics(serverId: string, period: string, token?: string) {
  
         const historical: MetricPoint[] = data.map((item: any) => ({
           timestamp: item.timestamp,
-cpu: item.metrics.find((m: any) => m.name === "cpu.percent")?.value ?? 0,
+          cpu: item.metrics.find((m: any) => m.name === "cpu.percent")?.value ?? 0,
           memory: item.metrics.find((m: any) => m.name === "mem.percent")?.value ?? 0,
           disk: item.metrics?.find((x: any) => x.name === "disk")?.value ?? [],
           network: item.metrics?.find((x: any) => x.name === "network")?.value ?? [],
