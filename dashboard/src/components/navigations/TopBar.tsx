@@ -70,7 +70,11 @@ const TopBarLayout: React.FC<TopBarLayoutProps> = ({
           <button onClick={onSettings} title="Settings" className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-blue-400 focus:outline-none"><Settings /></button>
           <button onClick={onLogout} title="Logout" className="bg-transparent p-1 rounded-lg text-gray-400 hover:text-red-400 focus:outline-none"><LogOut /></button>
         </div>
-      </div> 
+      </div>
+      {/* Main Content */}
+      <div className="p-4">
+        {selectedServerId ? children : <div className="text-center mt-20 text-gray-400">Select a server to view dashboard.</div>}
+      </div>
     </div>
   );
 };
