@@ -36,3 +36,6 @@ steps:
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
