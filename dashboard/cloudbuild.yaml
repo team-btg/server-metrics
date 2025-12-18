@@ -1,36 +1,38 @@
+# Declare the variable here so Cloud Build recognizes it
+substitutions:
+  _VITE_API_BASE_URL: "https://backend-1090247220176.us-central1.run.app"
+
 steps:
   # 1. Build the Docker container image
-  # This step uses the Dockerfile in your directory.
-  # It passes the production backend URL as a build argument.
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build'
     args:
       - 'build'
       - '--build-arg'
-      - 'VITE_API_BASE_URL=${_VITE_API_BASE_URL}'
+      - 'VITE_API_BASE_URL=${_VITE_API_BASE_URL}' # Use the underscored name here
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
       - '.'
-    id: 'Build'
 
   # 2. Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push'
     args:
       - 'push'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
-    id: 'Push'
 
   # 3. Deploy the new version to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'server-metrics-dashboard' # You can name your service anything you like
+      - 'server-metrics-dashboard'
       - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
-      - '--region=us-central1' # Use the same region as your backend for best performance
+      - '--region=us-central1'
       - '--platform=managed'
-      - '--allow-unauthenticated' # This makes your website public
-    id: 'Deploy'
+      - '--allow-unauthenticated'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
