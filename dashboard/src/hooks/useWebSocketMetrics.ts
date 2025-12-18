@@ -22,6 +22,9 @@ export function useWebSocketMetrics(serverId: string, token?: string) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        
+        if (msg.type === "ping") return;
+        
         if (msg.type === "metric") {
           const newPoint: MetricPoint = {
             timestamp: msg.data.timestamp,

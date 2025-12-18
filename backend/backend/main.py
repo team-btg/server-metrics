@@ -973,14 +973,30 @@ async def ws_metrics(websocket: WebSocket, server_id: str = Query(...), token: O
 
     try:
         while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        print(f"[{server_id}] WebSocket disconnected.")
+            try: 
+                await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            
+            except asyncio.TimeoutError: 
+                try:
+                    await websocket.send_json({"type": "ping", "data": "heartbeat"})
+                except Exception: 
+                    break
+            
+            except WebSocketDisconnect: 
+                break
+
+    except Exception as e:
+        print(f"[{server_id}] WebSocket error: {e}")
     finally:
         print(f"[{server_id}] Cleaning up resources...")
         forwarder_task.cancel()
         streaming_pull_future.cancel() 
-        await asyncio.to_thread(subscriber.delete_subscription, request={"subscription": subscription_path})
+         
+        try:
+            await asyncio.to_thread(subscriber.delete_subscription, request={"subscription": subscription_path})
+        except Exception as e:
+            print(f"[{server_id}] Error deleting subscription: {e}")
+            
         print(f"[{server_id}] Cleanup complete.")
 
 @metrics_router.post("/")
