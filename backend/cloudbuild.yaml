@@ -10,7 +10,7 @@ steps:
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/${_IMAGE_NAME}:$BUILD_ID'
       - '-f'
-      - 'backend/Dockerfile' # <--- Point to the file
+      - 'backend/Dockerfile'
       - 'backend/'
 
   # 2️⃣ Push the container image to Artifact Registry
