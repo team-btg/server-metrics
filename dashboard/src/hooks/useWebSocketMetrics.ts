@@ -13,7 +13,7 @@ export function useWebSocketMetrics(serverId: string, token?: string) {
       const url = new URL(baseUrl); 
       const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${url.host}/api/v1/ws/metrics?${params.toString()}`;
-      
+      console.log("Connecting to WS URL:", wsUrl);
       return wsUrl;
     };
 
