@@ -12,7 +12,9 @@ steps:
       - 'VITE_API_BASE_URL=${_VITE_API_BASE_URL}' # Use the underscored name here
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/server-metrics-repo/dashboard:$BUILD_ID'
-      - '.'
+      - '-f'
+      - 'dashboard/Dockerfile' 
+      - 'dashboard/'
 
   # 2. Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
