@@ -8,8 +8,16 @@ export function useWebSocketMetrics(serverId: string, token?: string) {
     if (!serverId || !token) return;
 
     const params = new URLSearchParams({ server_id: serverId, token });
-    const wsUrl = new URL(`/api/v1/ws/metrics?${params.toString()}`, import.meta.env.VITE_API_BASE_URL.replace(/^http/, "ws"));
-    const ws = new WebSocket(wsUrl.toString());
+    const getWsUrl = () => {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL; 
+      const url = new URL(baseUrl); 
+      const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${url.host}/api/v1/ws/metrics?${params.toString()}`;
+      
+      return wsUrl;
+    };
+
+    const ws = new WebSocket(getWsUrl());
 
     ws.onmessage = (event) => {
       try {
